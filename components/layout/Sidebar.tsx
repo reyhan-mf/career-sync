@@ -47,7 +47,7 @@ const Brand = memo(function Brand({
   role: string;
 }) {
   return (
-    <div className="flex items-center h-14 mb-4 px-3">
+    <div className="flex items-center h-14 mb-4 px-4">
       <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shrink-0 shadow-sm">
         <Icon name="school" filled className="text-on-primary text-xl" />
       </div>

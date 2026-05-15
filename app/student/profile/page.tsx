@@ -1,6 +1,5 @@
 "use client";
 
-import FilterSelect from "@/components/ui/FilterSelect";
 import Icon from "@/components/ui/Icon";
 import {
   Table,
@@ -10,12 +9,265 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import React, { useState } from "react";
 
 /* ── Dummy data: Mata Kuliah → CLOs with grades ── */
 const coursesData = [
+  // ── Semester 1 ──
   {
     id: "MK-01",
+    name: "Matematika Diskrit",
+    semester: 1,
+    sks: 3,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Memahami konsep logika proposisi dan predikat serta penerapannya dalam pembuktian",
+        grade: "A",
+        weight: 1.0,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mampu menerapkan teori himpunan, relasi, dan fungsi dalam pemecahan masalah komputasi",
+        grade: "A-",
+        weight: 0.9,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Memahami konsep kombinatorika, probabilitas diskrit, dan teori graf dasar",
+        grade: "B+",
+        weight: 0.8,
+      },
+    ],
+  },
+  {
+    id: "MK-02",
+    name: "Logika Pemrograman",
+    semester: 1,
+    sks: 2,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Mampu menyusun algoritma dasar menggunakan pseudocode dan flowchart",
+        grade: "A",
+        weight: 1.0,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mampu mengimplementasikan algoritma dasar (percabangan, perulangan, fungsi) dalam Python",
+        grade: "A",
+        weight: 1.0,
+      },
+    ],
+  },
+  {
+    id: "MK-03",
+    name: "Pengantar Ilmu Komputer",
+    semester: 1,
+    sks: 2,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Memahami sejarah dan perkembangan ilmu komputer serta cabang-cabang bidang ilmunya",
+        grade: "A",
+        weight: 1.0,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mengenal komponen utama sistem komputer: hardware, software, dan representasi data biner",
+        grade: "A",
+        weight: 1.0,
+      },
+    ],
+  },
+  // ── Semester 2 ──
+  {
+    id: "MK-04",
+    name: "Algoritma & Struktur Data",
+    semester: 2,
+    sks: 4,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Memahami dan mengimplementasikan struktur data linear: array, linked list, stack, dan queue",
+        grade: "B+",
+        weight: 0.8,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Memahami dan mengimplementasikan struktur data non-linear: tree, graph, dan heap",
+        grade: "B",
+        weight: 0.7,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Mampu menganalisis kompleksitas waktu dan ruang algoritma menggunakan notasi Big-O",
+        grade: "A-",
+        weight: 0.9,
+      },
+    ],
+  },
+  {
+    id: "MK-05",
+    name: "Pemrograman Berorientasi Objek",
+    semester: 2,
+    sks: 3,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Mampu menerapkan konsep OOP: enkapsulasi, inheritance, polimorfisme, dan abstraksi",
+        grade: "A",
+        weight: 1.0,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mampu merancang sistem menggunakan UML (class diagram dan use case diagram)",
+        grade: "B+",
+        weight: 0.8,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Mampu mengimplementasikan design pattern dasar: Singleton, Factory, dan Observer",
+        grade: "B",
+        weight: 0.7,
+      },
+    ],
+  },
+  // ── Semester 3 ──
+  {
+    id: "MK-06",
+    name: "Sistem Operasi",
+    semester: 3,
+    sks: 3,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Memahami konsep proses, thread, penjadwalan CPU, dan manajemen memori",
+        grade: "B+",
+        weight: 0.8,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Memahami konsep sinkronisasi proses, mutual exclusion, dan penanganan deadlock",
+        grade: "B",
+        weight: 0.7,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Mampu menggunakan perintah dasar sistem operasi Linux/Unix dan shell scripting",
+        grade: "A-",
+        weight: 0.9,
+      },
+    ],
+  },
+  {
+    id: "MK-07",
+    name: "Jaringan Komputer",
+    semester: 3,
+    sks: 3,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Memahami model OSI dan TCP/IP beserta protokol dan fungsi tiap layer",
+        grade: "B",
+        weight: 0.7,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mampu melakukan konfigurasi jaringan dasar: IP addressing, subnetting, dan routing statis",
+        grade: "B+",
+        weight: 0.8,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Memahami konsep keamanan jaringan dasar: firewall, VPN, dan protokol SSL/TLS",
+        grade: "B-",
+        weight: 0.6,
+      },
+    ],
+  },
+  // ── Semester 4 ──
+  {
+    id: "MK-08",
+    name: "Basis Data",
+    semester: 4,
+    sks: 3,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Mampu merancang dan mengimplementasikan skema database relasional (normalisasi hingga 3NF)",
+        grade: "B+",
+        weight: 0.8,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mampu menulis query SQL kompleks termasuk JOIN, subquery, dan fungsi agregasi",
+        grade: "A",
+        weight: 1.0,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Mampu melakukan optimasi query dan indexing untuk meningkatkan performa database",
+        grade: "B",
+        weight: 0.7,
+      },
+    ],
+  },
+  {
+    id: "MK-09",
+    name: "Rekayasa Perangkat Lunak",
+    semester: 4,
+    sks: 3,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Memahami siklus hidup pengembangan perangkat lunak (SDLC) dan berbagai modelnya",
+        grade: "A-",
+        weight: 0.9,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mampu melakukan analisis kebutuhan dan menyusun dokumen Software Requirements Specification",
+        grade: "B+",
+        weight: 0.8,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Mampu merancang arsitektur sistem menggunakan diagram UML (sequence, activity, component)",
+        grade: "B",
+        weight: 0.7,
+      },
+    ],
+  },
+  // ── Semester 5 ──
+  {
+    id: "MK-10",
     name: "Pemrograman Web",
     semester: 5,
     sks: 3,
@@ -44,36 +296,37 @@ const coursesData = [
     ],
   },
   {
-    id: "MK-02",
-    name: "Basis Data",
-    semester: 4,
+    id: "MK-11",
+    name: "Software Engineering",
+    semester: 5,
     sks: 3,
     clos: [
       {
         code: "CLO1",
         description:
-          "Mampu merancang dan mengimplementasikan skema database relasional (SQL)",
-        grade: "B+",
-        weight: 0.8,
+          "Mampu menerapkan metodologi Agile/Scrum dalam pengembangan perangkat lunak tim",
+        grade: "A",
+        weight: 1.0,
       },
       {
         code: "CLO2",
         description:
-          "Mampu menulis query SQL kompleks termasuk JOIN, subquery, dan agregasi",
+          "Mampu menggunakan version control (Git) secara kolaboratif dan mengelola CI/CD pipeline",
         grade: "A",
         weight: 1.0,
       },
       {
         code: "CLO3",
         description:
-          "Mampu melakukan optimasi query dan indexing untuk performa database",
-        grade: "B",
-        weight: 0.7,
+          "Mampu menulis unit test dan integration test yang efektif menggunakan testing framework",
+        grade: "B+",
+        weight: 0.8,
       },
     ],
   },
+  // ── Semester 6 ──
   {
-    id: "MK-03",
+    id: "MK-12",
     name: "Pengembangan Aplikasi Mobile",
     semester: 6,
     sks: 3,
@@ -87,75 +340,52 @@ const coursesData = [
       },
       {
         code: "CLO2",
-        description: "Mampu mengintegrasikan REST API dengan aplikasi mobile",
+        description:
+          "Mampu mengintegrasikan REST API dan menangani state management dalam aplikasi mobile",
         grade: "B",
         weight: 0.7,
       },
       {
         code: "CLO3",
-        description: "Mampu mempublikasikan aplikasi ke Google Play Store",
+        description:
+          "Mampu mempublikasikan aplikasi ke Google Play Store sesuai standar dan kebijakan Google",
         grade: "C",
         weight: 0.4,
       },
     ],
   },
   {
-    id: "MK-04",
+    id: "MK-13",
     name: "Keamanan Informasi",
     semester: 6,
     sks: 3,
     clos: [
       {
         code: "CLO1",
-        description: "Memahami konsep kriptografi dasar dan penerapannya",
+        description:
+          "Memahami konsep kriptografi dasar: enkripsi simetris, asimetris, dan fungsi hash",
         grade: "B+",
         weight: 0.8,
       },
       {
         code: "CLO2",
         description:
-          "Mampu melakukan vulnerability assessment dan penetration testing dasar",
+          "Mampu melakukan vulnerability assessment dan penetration testing dasar pada aplikasi web",
         grade: "B",
         weight: 0.7,
       },
       {
         code: "CLO3",
-        description: "Memahami standar keamanan OWASP Top 10 dan mitigasinya",
+        description:
+          "Memahami standar keamanan OWASP Top 10 dan mampu menerapkan mitigasinya dalam kode",
         grade: "A-",
         weight: 0.9,
       },
     ],
   },
+  // ── Semester 7 ──
   {
-    id: "MK-05",
-    name: "Software Engineering",
-    semester: 5,
-    sks: 3,
-    clos: [
-      {
-        code: "CLO1",
-        description:
-          "Mampu menerapkan metodologi Agile/Scrum dalam pengembangan perangkat lunak",
-        grade: "A",
-        weight: 1.0,
-      },
-      {
-        code: "CLO2",
-        description:
-          "Mampu menggunakan version control (Git) dan CI/CD pipeline",
-        grade: "A",
-        weight: 1.0,
-      },
-      {
-        code: "CLO3",
-        description: "Mampu menulis unit test dan integration test",
-        grade: "B+",
-        weight: 0.8,
-      },
-    ],
-  },
-  {
-    id: "MK-06",
+    id: "MK-14",
     name: "Kecerdasan Buatan",
     semester: 7,
     sks: 3,
@@ -163,23 +393,89 @@ const coursesData = [
       {
         code: "CLO1",
         description:
-          "Memahami konsep dasar machine learning (supervised, unsupervised)",
+          "Memahami konsep dasar machine learning: supervised learning, unsupervised learning, dan reinforcement learning",
         grade: "B",
         weight: 0.7,
       },
       {
         code: "CLO2",
         description:
-          "Mampu mengimplementasikan model ML menggunakan Python dan scikit-learn",
+          "Mampu mengimplementasikan dan melatih model ML menggunakan Python dan scikit-learn",
         grade: "B-",
         weight: 0.6,
       },
       {
         code: "CLO3",
         description:
-          "Mampu mengevaluasi performa model dan melakukan tuning hyperparameter",
+          "Mampu mengevaluasi performa model menggunakan metrik yang tepat dan melakukan hyperparameter tuning",
         grade: "C+",
         weight: 0.5,
+      },
+    ],
+  },
+  {
+    id: "MK-15",
+    name: "Sistem Informasi Manajemen",
+    semester: 7,
+    sks: 3,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Memahami peran dan komponen Sistem Informasi Manajemen dalam mendukung pengambilan keputusan organisasi",
+        grade: "B+",
+        weight: 0.8,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mampu menganalisis proses bisnis dan merancang solusi sistem informasi yang sesuai kebutuhan organisasi",
+        grade: "B",
+        weight: 0.7,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Mampu membuat laporan analisis Business Intelligence menggunakan tools visualisasi data",
+        grade: "B+",
+        weight: 0.8,
+      },
+    ],
+  },
+  // ── Semester 8 ──
+  {
+    id: "MK-16",
+    name: "Skripsi",
+    semester: 8,
+    sks: 6,
+    clos: [
+      {
+        code: "CLO1",
+        description:
+          "Mampu mengidentifikasi masalah penelitian yang relevan dan merumuskan solusi berbasis ilmu komputer",
+        grade: "A",
+        weight: 1.0,
+      },
+      {
+        code: "CLO2",
+        description:
+          "Mampu menyusun literature review yang komprehensif dan membangun landasan teori yang kuat",
+        grade: "A-",
+        weight: 0.9,
+      },
+      {
+        code: "CLO3",
+        description:
+          "Mampu merancang, mengimplementasikan, dan mengevaluasi solusi secara sistematis dan terukur",
+        grade: "A",
+        weight: 1.0,
+      },
+      {
+        code: "CLO4",
+        description:
+          "Mampu mempresentasikan dan mempertahankan hasil penelitian secara ilmiah di hadapan dewan penguji",
+        grade: "A",
+        weight: 1.0,
       },
     ],
   },
@@ -288,29 +584,34 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border flex items-center gap-4">
-        <FilterSelect
-          label="Semester"
-          icon="filter_list"
-          value={filterSemester}
-          onChange={setFilterSemester}
-          options={[
-            { value: "all", label: "Semua Semester" },
-            ...semesters.map((s) => ({
-              value: String(s),
-              label: `Semester ${s}`,
-            })),
-          ]}
-        />
-        <span className="font-label text-xs text-on-surface-variant ml-auto">
-          {filteredCourses.length} mata kuliah ·{" "}
-          {filteredCourses.reduce((a, c) => a + c.clos.length, 0)} CLO
-        </span>
-      </div>
-
-      {/* Courses Table */}
+      {/* Filter Tabs + Courses Table — satu card */}
       <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
+        {/* Tab header menempel di atas tabel */}
+        <Tabs
+          value={filterSemester}
+          onValueChange={setFilterSemester}
+          className="border-b border-outline-variant bg-surface-container-low"
+        >
+          <TabsList className="w-full rounded-none bg-transparent h-auto p-0 gap-0">
+            <TabsTrigger
+              value="all"
+              className="flex-1 rounded-none px-5 h-11 border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-surface-container-lowest data-[state=active]:shadow-none whitespace-nowrap font-medium"
+            >
+              Semua
+            </TabsTrigger>
+            {semesters.map((s) => (
+              <TabsTrigger
+                key={s}
+                value={String(s)}
+                className="flex-1 rounded-none px-5 h-11 border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-surface-container-lowest data-[state=active]:shadow-none whitespace-nowrap font-medium"
+              >
+                Semester {s}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {/* Courses Table */}
         <Table>
           <TableHeader>
             <TableRow className="bg-surface-container-low hover:bg-surface-container-low">
@@ -399,23 +700,47 @@ export default function ProfilePage() {
                     </TableCell>
                   </TableRow>
 
-                  {/* Expanded CLO Detail Rows */}
-                  {isExpanded && (
-                    <>
-                      <TableRow className="bg-surface-container-low/50 hover:bg-surface-container-low/50">
-                        <TableCell colSpan={7} className="py-2">
-                          <span className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant">
-                            Course Learning Outcomes (CLO)
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                      {course.clos.map((clo) => (
-                        <TableRow
-                          key={`${course.id}-${clo.code}`}
-                          className="bg-surface-container-low/30 hover:bg-surface-container-low/50"
+                  {/* Expanded CLO Detail Rows — always rendered, animated via CSS */}
+                  <TableRow
+                    className={`bg-surface-container-low/50 hover:bg-surface-container-low/50 ${
+                      isExpanded ? "" : "border-0"
+                    }`}
+                  >
+                    <TableCell colSpan={7} className="p-0 border-0">
+                      <div
+                        className={`grid transition-all duration-300 ease-in-out ${
+                          isExpanded
+                            ? "grid-rows-[1fr] opacity-100"
+                            : "grid-rows-[0fr] opacity-0"
+                        }`}
+                      >
+                        <div className="overflow-hidden">
+                          <div className="py-2 px-4">
+                            <span className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant">
+                              Course Learning Outcomes (CLO)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {course.clos.map((clo) => (
+                    <TableRow
+                      key={`${course.id}-${clo.code}`}
+                      className={`bg-surface-container-low/30 hover:bg-surface-container-low/50 ${
+                        isExpanded ? "" : "border-0"
+                      }`}
+                    >
+                      <TableCell colSpan={5} className="p-0 border-0">
+                        <div
+                          className={`grid transition-all duration-300 ease-in-out ${
+                            isExpanded
+                              ? "grid-rows-[1fr] opacity-100"
+                              : "grid-rows-[0fr] opacity-0"
+                          }`}
                         >
-                          <TableCell colSpan={2}>
-                            <div className="flex items-center gap-2">
+                          <div className="overflow-hidden">
+                            <div className="pl-14 py-3 pr-4 flex items-center gap-2">
                               <span className="font-label text-xs font-bold text-primary bg-primary-fixed px-2 py-0.5 rounded whitespace-nowrap">
                                 {clo.code}
                               </span>
@@ -423,32 +748,33 @@ export default function ProfilePage() {
                                 {clo.description}
                               </span>
                             </div>
-                          </TableCell>
-                          <TableCell colSpan={2} className="text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <div className="w-24 h-1.5 bg-surface-container rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full bg-primary"
-                                  style={{ width: `${clo.weight * 100}%` }}
-                                />
-                              </div>
-                              <span className="font-label text-xs text-on-surface-variant">
-                                Bobot {(clo.weight * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-0 border-0 text-center">
+                        <div
+                          className={`grid transition-all duration-300 ease-in-out ${
+                            isExpanded
+                              ? "grid-rows-[1fr] opacity-100"
+                              : "grid-rows-[0fr] opacity-0"
+                          }`}
+                        >
+                          <div className="overflow-hidden">
+                            <div className="py-3 px-4">
+                              <span
+                                className={`inline-flex px-2.5 py-1 rounded-full font-label text-xs font-bold ${gradeColor(
+                                  clo.grade,
+                                )}`}
+                              >
+                                {clo.grade}
                               </span>
                             </div>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <span
-                              className={`inline-flex px-2.5 py-1 rounded-full font-label text-xs font-bold ${gradeColor(clo.grade)}`}
-                            >
-                              {clo.grade}
-                            </span>
-                          </TableCell>
-                          <TableCell />
-                        </TableRow>
-                      ))}
-                    </>
-                  )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-0 border-0" />
+                    </TableRow>
+                  ))}
                 </React.Fragment>
               );
             })}

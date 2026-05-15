@@ -1,9 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
 import "./globals.css";
-
-const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "CareerSync — Academic Career Portal",
@@ -17,12 +14,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="id"
-      className={cn("h-full antialiased", "font-sans", geist.variable)}
-    >
+    <html lang="id" className={cn("h-full antialiased")}>
       <head>
-        {/* Google Fonts */}
+        {/* Google Fonts: Poppins */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -30,7 +24,7 @@ export default function RootLayout({
           crossOrigin="anonymous"
         />
         <link
-          href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Public+Sans:wght@300;400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
         {/* Material Symbols */}
