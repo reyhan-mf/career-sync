@@ -67,6 +67,11 @@ export default function ChangePasswordModal({
   open: boolean;
   onClose: () => void;
 }) {
+  if (!open) return null;
+  return <ChangePasswordModalInner onClose={onClose} />;
+}
+
+function ChangePasswordModalInner({ onClose }: { onClose: () => void }) {
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
@@ -76,29 +81,13 @@ export default function ChangePasswordModal({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const reset = () => {
-    setOldPw("");
-    setNewPw("");
-    setConfirmPw("");
-    setShowOld(false);
-    setShowNew(false);
-    setShowConfirm(false);
-    setError(null);
-    setSuccess(false);
-  };
-
   useEffect(() => {
-    if (!open) reset();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [onClose]);
 
   const requirements = useMemo<Requirement[]>(
     () => [
@@ -140,8 +129,6 @@ export default function ChangePasswordModal({
       onClose();
     }, 1500);
   };
-
-  if (!open) return null;
 
   return (
     <div

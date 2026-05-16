@@ -39,6 +39,55 @@ const roleLabels: Record<string, string> = {
   superadmin: "Superadmin",
 };
 
+interface RoleBranding {
+  icon: string;
+  logoBgClass: string;
+  logoTextClass: string;
+  activeBgClass: string;
+  activeTextClass: string;
+  hoverBgClass: string;
+  hoverTextClass: string;
+}
+
+const roleBranding: Record<string, RoleBranding> = {
+  student: {
+    icon: "school",
+    logoBgClass: "bg-primary-container",
+    logoTextClass: "text-on-primary",
+    activeBgClass: "bg-primary-container",
+    activeTextClass: "text-on-primary-container",
+    hoverBgClass: "hover:bg-primary-fixed",
+    hoverTextClass: "hover:text-on-surface-variant",
+  },
+  hr: {
+    icon: "work_history",
+    logoBgClass: "bg-tertiary-container",
+    logoTextClass: "text-on-tertiary",
+    activeBgClass: "bg-tertiary-fixed",
+    activeTextClass: "text-on-tertiary-container",
+    hoverBgClass: "hover:bg-tertiary-fixed",
+    hoverTextClass: "hover:text-on-surface-variant",
+  },
+  admin: {
+    icon: "admin_panel_settings",
+    logoBgClass: "bg-[#4f46e5]",
+    logoTextClass: "text-white",
+    activeBgClass: "bg-[#4f46e5]",
+    activeTextClass: "text-white",
+    hoverBgClass: "hover:bg-[#4f46e5]",
+    hoverTextClass: "hover:text-white",
+  },
+  superadmin: {
+    icon: "verified",
+    logoBgClass: "bg-primary-fixed-dim",
+    logoTextClass: "text-primary",
+    activeBgClass: "bg-primary-fixed-dim",
+    activeTextClass: "text-primary",
+    hoverBgClass: "hover:bg-primary-fixed-dim",
+    hoverTextClass: "hover:text-on-surface-variant",
+  },
+};
+
 /* ─── Brand section ─── */
 const Brand = memo(function Brand({
   expanded,
@@ -47,16 +96,21 @@ const Brand = memo(function Brand({
   expanded: boolean;
   role: string;
 }) {
+  const brand = roleBranding[role] || roleBranding.student;
   return (
     <div className="flex items-center h-14 mb-4 px-4">
-      <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shrink-0 shadow-sm">
-        <Icon name="school" filled className="text-on-primary text-xl" />
+      <div
+        className={`w-10 h-10 rounded-xl ${brand.logoBgClass} flex items-center justify-center shrink-0 shadow-sm`}
+      >
+        <Icon
+          name={brand.icon}
+          filled
+          className={`${brand.logoTextClass} text-xl`}
+        />
       </div>
       <div
         className={`overflow-hidden transition-[max-width,opacity,margin-left] duration-300 ease-in-out ${
-          expanded
-            ? "max-w-50 opacity-100 ml-3"
-            : "max-w-0 opacity-0 ml-0"
+          expanded ? "max-w-50 opacity-100 ml-3" : "max-w-0 opacity-0 ml-0"
         }`}
       >
         <h2 className="font-headline text-lg font-bold text-primary tracking-tight whitespace-nowrap">
@@ -75,13 +129,16 @@ const NavLink = memo(function NavLink({
   item,
   expanded,
   showTooltip = false,
+  role,
 }: {
   item: NavItem;
   expanded: boolean;
   showTooltip?: boolean;
+  role?: string;
 }) {
   const pathname = usePathname();
   const isActive = pathname === item.href;
+  const brand = roleBranding[role || "student"];
 
   const linkContent = (
     <Link
@@ -89,8 +146,8 @@ const NavLink = memo(function NavLink({
       className={`relative flex items-center rounded-xl font-label text-sm px-3 py-2.5 transition-colors duration-200 group
         ${
           isActive
-            ? "bg-primary-container text-on-primary-container font-bold"
-            : "text-on-surface-variant hover:bg-surface-container-high"
+            ? `${brand.activeBgClass} ${brand.activeTextClass} font-bold`
+            : `text-on-surface-variant ${brand.hoverBgClass} ${brand.hoverTextClass}`
         }`}
     >
       <div className="flex items-center justify-center w-6 h-6 shrink-0 transition-transform duration-200 group-hover:scale-110">
@@ -98,9 +155,7 @@ const NavLink = memo(function NavLink({
       </div>
       <span
         className={`overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin-left] duration-300 ease-in-out ${
-          expanded
-            ? "max-w-50 opacity-100 ml-3"
-            : "max-w-0 opacity-0 ml-0"
+          expanded ? "max-w-50 opacity-100 ml-3" : "max-w-0 opacity-0 ml-0"
         }`}
       >
         {item.label}
@@ -141,9 +196,7 @@ const SignOutLink = memo(function SignOutLink({
       </div>
       <span
         className={`overflow-hidden whitespace-nowrap text-error font-medium transition-[max-width,opacity,margin-left] duration-300 ease-in-out ${
-          expanded
-            ? "max-w-50 opacity-100 ml-3"
-            : "max-w-0 opacity-0 ml-0"
+          expanded ? "max-w-50 opacity-100 ml-3" : "max-w-0 opacity-0 ml-0"
         }`}
       >
         Sign Out
@@ -237,14 +290,14 @@ export default function Sidebar({ items, bottomItems, role }: SidebarProps) {
 
             <div className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3">
               {items.map((item) => (
-                <NavLink key={item.href} item={item} expanded />
+                <NavLink key={item.href} item={item} expanded role={role} />
               ))}
             </div>
 
             <div className="mt-auto space-y-1 pt-4 px-3">
               <div className="mb-2 border-t border-outline-variant/20" />
               {bottomItems?.map((item) => (
-                <NavLink key={item.href} item={item} expanded />
+                <NavLink key={item.href} item={item} expanded role={role} />
               ))}
               <SignOutLink expanded />
             </div>
@@ -272,6 +325,7 @@ export default function Sidebar({ items, bottomItems, role }: SidebarProps) {
               item={item}
               expanded={hovered}
               showTooltip={!hovered}
+              role={role}
             />
           ))}
         </div>
@@ -284,6 +338,7 @@ export default function Sidebar({ items, bottomItems, role }: SidebarProps) {
               item={item}
               expanded={hovered}
               showTooltip={!hovered}
+              role={role}
             />
           ))}
           <SignOutLink expanded={hovered} showTooltip={!hovered} />

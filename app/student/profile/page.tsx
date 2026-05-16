@@ -10,8 +10,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ChangePasswordModal from "@/components/ui/ChangePasswordModal";
 import React, { useState } from "react";
-import ChangePasswordModal from "./ChangePasswordModal";
 
 /* ── Dummy data: Mata Kuliah → CLOs with grades ── */
 const coursesData = [

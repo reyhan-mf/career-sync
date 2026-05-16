@@ -10,10 +10,12 @@ const hrNav: NavItem[] = [
   { label: "Dashboard", icon: "dashboard", href: "/hr/dashboard" },
   { label: "Kelola Lowongan", icon: "work", href: "/hr/jobs" },
   { label: "Daftar Pelamar", icon: "group", href: "/hr/applicants" },
+  { label: "Talent Pool", icon: "diversity_3", href: "/hr/talent-pool" },
 ];
 
 const bottomNav: NavItem[] = [
   { label: "Notifikasi", icon: "notifications", href: "/notifications" },
+  { label: "Profil & Pengaturan", icon: "manage_accounts", href: "/hr/profile" },
   { label: "Bantuan", icon: "help_center", href: "#" },
 ];
 
