@@ -14,13 +14,6 @@ import {
   initialMataKuliah,
 } from "@/lib/admin-mock";
 
-const angkatanData = [
-  { angkatan: "2021", count: 38, semester: "Semester 7" },
-  { angkatan: "2022", count: 42, semester: "Semester 5" },
-  { angkatan: "2023", count: 29, semester: "Semester 3" },
-  { angkatan: "2024", count: 16, semester: "Semester 1" },
-];
-
 interface AttentionItem {
   icon: string;
   label: string;
@@ -135,8 +128,8 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  const mkCoverage = useMemo(() => {
-    return initialMataKuliah.map((m) => {
+  const { mkNeedsAttention, completedCount } = useMemo(() => {
+    const all = initialMataKuliah.map((m) => {
       const clos = initialCLOs.filter((c) => c.mataKuliah === m.nama);
       const dinilaiNims = new Set(
         initialGrades.filter((g) => g.mataKuliah === m.nama).map((g) => g.nim)
@@ -151,6 +144,12 @@ export default function AdminDashboard() {
         ratio,
       };
     });
+    return {
+      mkNeedsAttention: all
+        .filter((m) => m.ratio < 1)
+        .sort((a, b) => a.ratio - b.ratio),
+      completedCount: all.filter((m) => m.ratio >= 1).length,
+    };
   }, []);
 
   const [expandedMK, setExpandedMK] = useState<string | null>(null);
@@ -269,33 +268,8 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Sebaran Mahasiswa per Angkatan */}
-        <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
-          <h2 className="font-headline text-xl font-bold text-on-background mb-6">Sebaran Mahasiswa per Angkatan</h2>
-          <div className="space-y-3">
-            {angkatanData.map((r) => (
-              <div key={r.angkatan} className="flex items-center justify-between p-3 rounded-xl bg-surface-container-low hover:bg-surface-container transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-fixed rounded-xl flex items-center justify-center">
-                    <Icon name="people" className="text-primary" size={18} />
-                  </div>
-                  <div>
-                    <p className="font-label text-sm font-bold text-on-background">Angkatan {r.angkatan}</p>
-                    <p className="font-label text-xs text-on-surface-variant">{r.semester}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-headline text-2xl font-bold text-primary">{r.count}</p>
-                  <p className="font-label text-xs text-on-surface-variant">mahasiswa</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Distribusi Grade */}
-        <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+      {/* Distribusi Grade */}
+      <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
           <div className="flex items-start justify-between mb-5">
             <div>
               <h2 className="font-headline text-xl font-bold text-on-background">Distribusi Grade</h2>
@@ -328,10 +302,9 @@ export default function AdminDashboard() {
               <p className="font-label text-[10px] uppercase tracking-wider text-green-700">Skor ≥ 85</p>
               <p className="font-headline text-lg font-bold text-green-700">{gradingInsight.highPct}%</p>
             </div>
-            <div className="bg-red-50 rounded-xl px-3 py-2">
-              <p className="font-label text-[10px] uppercase tracking-wider text-red-700">Skor &lt; 70</p>
-              <p className="font-headline text-lg font-bold text-red-700">{gradingInsight.lowPct}%</p>
-            </div>
+          <div className="bg-red-50 rounded-xl px-3 py-2">
+            <p className="font-label text-[10px] uppercase tracking-wider text-red-700">Skor &lt; 70</p>
+            <p className="font-headline text-lg font-bold text-red-700">{gradingInsight.lowPct}%</p>
           </div>
         </div>
       </div>
@@ -341,9 +314,9 @@ export default function AdminDashboard() {
         <div className="px-6 py-4 border-b border-outline-variant/20">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="font-headline text-xl font-bold text-on-background">Coverage Nilai per Mata Kuliah</h2>
+              <h2 className="font-headline text-xl font-bold text-on-background">Mata Kuliah Perlu Penilaian</h2>
               <p className="font-label text-xs text-on-surface-variant mt-1">
-                Klik baris untuk melihat detail mahasiswa yang sudah dan belum dinilai.
+                Hanya menampilkan mata kuliah yang penilaiannya belum lengkap. Klik baris untuk detail.
               </p>
             </div>
             <Link
@@ -355,6 +328,17 @@ export default function AdminDashboard() {
             </Link>
           </div>
         </div>
+        {mkNeedsAttention.length === 0 ? (
+          <div className="px-6 py-10 text-center">
+            <div className="w-14 h-14 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Icon name="check_circle" className="text-green-700" size={28} />
+            </div>
+            <p className="font-headline text-base font-bold text-on-background">Semua mata kuliah sudah dinilai lengkap</p>
+            <p className="font-label text-xs text-on-surface-variant mt-1">
+              {completedCount} mata kuliah memiliki nilai untuk seluruh mahasiswa.
+            </p>
+          </div>
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -366,7 +350,7 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody>
-              {mkCoverage.map((m) => {
+              {mkNeedsAttention.map((m) => {
                 const style = coverageStyle(m.ratio);
                 const isExpanded = expandedMK === m.kode;
                 const students = mhsStatusPerMK.get(m.kode) ?? [];
@@ -459,6 +443,21 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
+        )}
+        {completedCount > 0 && mkNeedsAttention.length > 0 && (
+          <div className="px-6 py-3 border-t border-outline-variant/20 bg-surface-container-low/40 flex items-center justify-between gap-3">
+            <p className="font-label text-xs text-on-surface-variant flex items-center gap-2">
+              <Icon name="check_circle" size={14} className="text-green-700" />
+              {completedCount} mata kuliah sudah dinilai lengkap
+            </p>
+            <Link
+              href="/admin/grades"
+              className="font-label text-xs font-semibold text-primary hover:underline"
+            >
+              Lihat semua
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -391,124 +391,124 @@ export default function AdminCLOPage() {
 
         {/* Table */}
         <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-surface-container-low">
-                  {[
-                    "Kode",
-                    "Nama Mata Kuliah",
-                    "SKS",
-                    "Semester",
-                    "Jumlah CLO",
-                    "Aksi",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMK.map((mk) => {
-                  const cloCount = cloCountByMK(mk.nama);
-                  return (
-                    <tr
-                      key={mk.kode}
-                      className="hover:bg-surface-container-low transition-colors border-t border-surface-variant"
-                    >
-                      <td className="px-6 py-4">
-                        <span className="font-label text-xs font-bold text-primary px-2 py-1 bg-primary-fixed rounded">
-                          {mk.kode}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-primary-fixed rounded-lg flex items-center justify-center shrink-0">
-                            <Icon
-                              name="menu_book"
-                              className="text-primary"
-                              size={16}
-                            />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-body text-sm font-medium text-on-background">
-                              {mk.nama}
-                            </p>
-                            <p className="font-label text-xs text-on-surface-variant line-clamp-1">
-                              {mk.deskripsi || "—"}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
-                        {mk.sks} SKS
-                      </td>
-                      <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
-                        Semester {mk.semester}
-                      </td>
-                      <td className="px-6 py-4">
-                        {cloCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 font-label text-xs font-semibold text-green-700">
-                            <span className="w-2 h-2 rounded-full bg-green-500" />
-                            {cloCount} CLO
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-surface-container-low">
+                    {[
+                      "Kode",
+                      "Nama Mata Kuliah",
+                      "SKS",
+                      "Semester",
+                      "Jumlah CLO",
+                      "Aksi",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredMK.map((mk) => {
+                    const cloCount = cloCountByMK(mk.nama);
+                    return (
+                      <tr
+                        key={mk.kode}
+                        className="hover:bg-surface-container-low transition-colors border-t border-surface-variant"
+                      >
+                        <td className="px-6 py-4">
+                          <span className="font-label text-xs font-bold text-primary px-2 py-1 bg-primary-fixed rounded">
+                            {mk.kode}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 font-label text-xs text-on-surface-variant">
-                            <span className="w-2 h-2 rounded-full bg-outline" />
-                            Belum ada
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Link
-                            href={`/admin/clo/${mk.kode.toLowerCase()}`}
-                            className="px-3 py-1.5 font-label text-xs font-bold text-primary hover:bg-primary-fixed rounded-lg transition-colors inline-flex items-center gap-1"
-                            title="Kelola CLO"
-                          >
-                            Kelola CLO
-                            <Icon name="arrow_forward" size={14} />
-                          </Link>
-                          <button
-                            onClick={() => openEdit(mk)}
-                            className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors"
-                            title="Edit Mata Kuliah"
-                          >
-                            <Icon name="edit" size={18} />
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(mk)}
-                            className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors"
-                            title="Hapus Mata Kuliah"
-                          >
-                            <Icon name="delete" size={18} />
-                          </button>
-                        </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-primary-fixed rounded-lg flex items-center justify-center shrink-0">
+                              <Icon
+                                name="menu_book"
+                                className="text-primary"
+                                size={16}
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-body text-sm font-medium text-on-background">
+                                {mk.nama}
+                              </p>
+                              <p className="font-label text-xs text-on-surface-variant line-clamp-1">
+                                {mk.deskripsi || "—"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
+                          {mk.sks} SKS
+                        </td>
+                        <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
+                          Semester {mk.semester}
+                        </td>
+                        <td className="px-6 py-4">
+                          {cloCount > 0 ? (
+                            <span className="inline-flex items-center gap-1 font-label text-xs font-semibold text-green-700">
+                              <span className="w-2 h-2 rounded-full bg-green-500" />
+                              {cloCount} CLO
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 font-label text-xs text-on-surface-variant">
+                              <span className="w-2 h-2 rounded-full bg-outline" />
+                              Belum ada
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Link
+                              href={`/admin/clo/${mk.kode.toLowerCase()}`}
+                              className="px-3 py-1.5 font-label text-xs font-bold text-primary hover:bg-primary-fixed rounded-lg transition-colors inline-flex items-center gap-1"
+                              title="Kelola CLO"
+                            >
+                              Kelola CLO
+                              <Icon name="arrow_forward" size={14} />
+                            </Link>
+                            <button
+                              onClick={() => openEdit(mk)}
+                              className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors"
+                              title="Edit Mata Kuliah"
+                            >
+                              <Icon name="edit" size={18} />
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(mk)}
+                              className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors"
+                              title="Hapus Mata Kuliah"
+                            >
+                              <Icon name="delete" size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredMK.length === 0 && (
+                    <tr className="border-t border-surface-variant">
+                      <td
+                        colSpan={6}
+                        className="px-6 py-10 text-center font-body text-sm text-on-surface-variant"
+                      >
+                        {mkList.length === 0
+                          ? 'Belum ada mata kuliah. Klik "Tambah Mata Kuliah" untuk memulai.'
+                          : "Tidak ada mata kuliah yang cocok dengan filter."}
                       </td>
                     </tr>
-                  );
-                })}
-                {filteredMK.length === 0 && (
-                  <tr className="border-t border-surface-variant">
-                    <td
-                      colSpan={6}
-                      className="px-6 py-10 text-center font-body text-sm text-on-surface-variant"
-                    >
-                      {mkList.length === 0
-                        ? 'Belum ada mata kuliah. Klik "Tambah Mata Kuliah" untuk memulai.'
-                        : "Tidak ada mata kuliah yang cocok dengan filter."}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
     </>
   );
 }

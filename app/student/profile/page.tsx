@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import React, { useState } from "react";
+import ChangePasswordModal from "./ChangePasswordModal";
 
 /* ── Dummy data: Mata Kuliah → CLOs with grades ── */
 const coursesData = [
@@ -520,6 +521,7 @@ export default function ProfilePage() {
     coursesData[0].id,
   );
   const [filterSemester, setFilterSemester] = useState("all");
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const totalCLOs = coursesData.reduce((acc, c) => acc + c.clos.length, 0);
   const allGrades = coursesData.flatMap((c) =>
@@ -536,307 +538,298 @@ export default function ProfilePage() {
       : coursesData.filter((c) => c.semester === Number(filterSemester));
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      {/* Header */}
-      <div className="space-y-2">
-        <h1 className="font-headline text-3xl font-bold text-on-background">
-          Profil Mahasiswa
-        </h1>
-        <p className="font-body text-on-surface-variant">
-          Informasi mahasiswa, data akademik, dan capaian pembelajaran per mata
-          kuliah.
-        </p>
-      </div>
+    <>
+      <ChangePasswordModal
+        open={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+      />
 
-      {/* Student Profile Card */}
-      <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border p-6">
-        <div className="flex flex-col sm:flex-row items-start gap-6">
-          {/* Avatar */}
-          <div className="shrink-0 w-20 h-20 bg-primary rounded-2xl flex items-center justify-center shadow-lg">
-            <span className="font-headline text-3xl font-bold text-on-primary">
-              {studentData.name
-                .split(" ")
-                .map((n) => n[0])
-                .slice(0, 2)
-                .join("")}
-            </span>
-          </div>
+      <div className="max-w-6xl mx-auto space-y-8">
+        {/* Header */}
+        <div className="space-y-2">
+          <h1 className="font-headline text-3xl font-bold text-on-background">
+            Profil Mahasiswa
+          </h1>
+          <p className="font-body text-on-surface-variant">
+            Informasi mahasiswa, data akademik, dan capaian pembelajaran per
+            mata kuliah.
+          </p>
+        </div>
 
-          {/* Info */}
-          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-3">
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                Nama Lengkap
-              </p>
-              <p className="font-body text-sm font-semibold text-on-background">
-                {studentData.name}
-              </p>
-            </div>
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                NIM
-              </p>
-              <p className="font-body text-sm font-semibold text-on-background">
-                {studentData.nim}
-              </p>
-            </div>
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                Program Studi
-              </p>
-              <p className="font-body text-sm font-semibold text-on-background">
-                {studentData.prodi}
-              </p>
-            </div>
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                Fakultas
-              </p>
-              <p className="font-body text-sm font-semibold text-on-background">
-                {studentData.fakultas}
-              </p>
-            </div>
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                Angkatan
-              </p>
-              <p className="font-body text-sm font-semibold text-on-background">
-                {studentData.angkatan}
-              </p>
-            </div>
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                Status
-              </p>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-label text-xs font-bold text-green-700 bg-green-50">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
-                {studentData.status}
+        {/* Student Profile Card */}
+        <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border p-6 relative">
+          <button
+            type="button"
+            onClick={() => setShowChangePassword(true)}
+            className="absolute top-4 right-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-label text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors"
+          >
+            <Icon name="lock_reset" size={16} />
+            Ganti Password
+          </button>
+          <div className="flex flex-col sm:flex-row items-start gap-6">
+            {/* Avatar */}
+            <div className="shrink-0 w-20 h-20 bg-primary rounded-2xl flex items-center justify-center shadow-lg">
+              <span className="font-headline text-3xl font-bold text-on-primary">
+                {studentData.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join("")}
               </span>
             </div>
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                Dosen Wali
-              </p>
-              <p className="font-body text-sm font-semibold text-on-background">
-                {studentData.dosenWali}
-              </p>
-            </div>
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                Email
-              </p>
-              <p className="font-body text-sm font-semibold text-on-background">
-                {studentData.email}
-              </p>
-            </div>
-            <div>
-              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
-                IPK
-              </p>
-              <p className="font-headline text-xl font-bold text-primary">
-                {avgGPA}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-          <div className="w-10 h-10 bg-primary-fixed rounded-xl flex items-center justify-center mb-3">
-            <Icon name="menu_book" className="text-primary" size={20} />
+            {/* Info */}
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-3">
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  Nama Lengkap
+                </p>
+                <p className="font-body text-sm font-semibold text-on-background">
+                  {studentData.name}
+                </p>
+              </div>
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  NIM
+                </p>
+                <p className="font-body text-sm font-semibold text-on-background">
+                  {studentData.nim}
+                </p>
+              </div>
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  Program Studi
+                </p>
+                <p className="font-body text-sm font-semibold text-on-background">
+                  {studentData.prodi}
+                </p>
+              </div>
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  Fakultas
+                </p>
+                <p className="font-body text-sm font-semibold text-on-background">
+                  {studentData.fakultas}
+                </p>
+              </div>
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  Angkatan
+                </p>
+                <p className="font-body text-sm font-semibold text-on-background">
+                  {studentData.angkatan}
+                </p>
+              </div>
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  Status
+                </p>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-label text-xs font-bold text-green-700 bg-green-50">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
+                  {studentData.status}
+                </span>
+              </div>
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  Dosen Wali
+                </p>
+                <p className="font-body text-sm font-semibold text-on-background">
+                  {studentData.dosenWali}
+                </p>
+              </div>
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  Email
+                </p>
+                <p className="font-body text-sm font-semibold text-on-background">
+                  {studentData.email}
+                </p>
+              </div>
+              <div>
+                <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  IPK
+                </p>
+                <p className="font-headline text-xl font-bold text-primary">
+                  {avgGPA}
+                </p>
+              </div>
+            </div>
           </div>
-          <p className="font-label text-xs text-on-surface-variant">
-            Mata Kuliah
-          </p>
-          <p className="font-headline text-2xl font-bold text-on-background">
-            {coursesData.length}
-          </p>
         </div>
-        <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-          <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center mb-3">
-            <Icon name="school" className="text-green-700" size={20} />
-          </div>
-          <p className="font-label text-xs text-on-surface-variant">
-            Total CLO
-          </p>
-          <p className="font-headline text-2xl font-bold text-on-background">
-            {totalCLOs}
-          </p>
-        </div>
-        <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-          <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mb-3">
-            <Icon name="trending_up" className="text-blue-700" size={20} />
-          </div>
-          <p className="font-label text-xs text-on-surface-variant">
-            Rata-rata Nilai
-          </p>
-          <p className="font-headline text-2xl font-bold text-on-background">
-            {avgGPA}
-          </p>
-        </div>
-        <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-          <div className="w-10 h-10 bg-tertiary-fixed rounded-xl flex items-center justify-center mb-3">
-            <Icon name="emoji_events" className="text-tertiary" size={20} />
-          </div>
-          <p className="font-label text-xs text-on-surface-variant">
-            Total SKS
-          </p>
-          <p className="font-headline text-2xl font-bold text-on-background">
-            {coursesData.reduce((a, c) => a + c.sks, 0)}
-          </p>
-        </div>
-      </div>
 
-      {/* Filter Tabs + Courses Table — satu card */}
-      <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
-        {/* Tab header menempel di atas tabel */}
-        <Tabs
-          value={filterSemester}
-          onValueChange={setFilterSemester}
-          className="border-b border-outline-variant bg-surface-container-low"
-        >
-          <TabsList className="w-full rounded-none bg-transparent h-auto p-0 gap-0">
-            <TabsTrigger
-              value="all"
-              className="flex-1 rounded-none px-5 h-11 border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-surface-container-lowest data-[state=active]:shadow-none whitespace-nowrap font-medium"
-            >
-              Semua
-            </TabsTrigger>
-            {semesters.map((s) => (
+        {/* Summary */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
+            <div className="w-10 h-10 bg-primary-fixed rounded-xl flex items-center justify-center mb-3">
+              <Icon name="menu_book" className="text-primary" size={20} />
+            </div>
+            <p className="font-label text-xs text-on-surface-variant">
+              Mata Kuliah
+            </p>
+            <p className="font-headline text-2xl font-bold text-on-background">
+              {coursesData.length}
+            </p>
+          </div>
+          <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
+            <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center mb-3">
+              <Icon name="school" className="text-green-700" size={20} />
+            </div>
+            <p className="font-label text-xs text-on-surface-variant">
+              Total CLO
+            </p>
+            <p className="font-headline text-2xl font-bold text-on-background">
+              {totalCLOs}
+            </p>
+          </div>
+          <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
+            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mb-3">
+              <Icon name="trending_up" className="text-blue-700" size={20} />
+            </div>
+            <p className="font-label text-xs text-on-surface-variant">
+              Rata-rata Nilai
+            </p>
+            <p className="font-headline text-2xl font-bold text-on-background">
+              {avgGPA}
+            </p>
+          </div>
+          <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
+            <div className="w-10 h-10 bg-tertiary-fixed rounded-xl flex items-center justify-center mb-3">
+              <Icon name="emoji_events" className="text-tertiary" size={20} />
+            </div>
+            <p className="font-label text-xs text-on-surface-variant">
+              Total SKS
+            </p>
+            <p className="font-headline text-2xl font-bold text-on-background">
+              {coursesData.reduce((a, c) => a + c.sks, 0)}
+            </p>
+          </div>
+        </div>
+
+        {/* Filter Tabs + Courses Table — satu card */}
+        <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
+          {/* Tab header menempel di atas tabel */}
+          <Tabs
+            value={filterSemester}
+            onValueChange={setFilterSemester}
+            className="border-b border-outline-variant bg-surface-container-low"
+          >
+            <TabsList className="w-full rounded-none bg-transparent h-auto p-0 gap-0">
               <TabsTrigger
-                key={s}
-                value={String(s)}
+                value="all"
                 className="flex-1 rounded-none px-5 h-11 border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-surface-container-lowest data-[state=active]:shadow-none whitespace-nowrap font-medium"
               >
-                Semester {s}
+                Semua
               </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+              {semesters.map((s) => (
+                <TabsTrigger
+                  key={s}
+                  value={String(s)}
+                  className="flex-1 rounded-none px-5 h-11 border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-surface-container-lowest data-[state=active]:shadow-none whitespace-nowrap font-medium"
+                >
+                  Semester {s}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
 
-        {/* Courses Table */}
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-surface-container-low hover:bg-surface-container-low">
-              <TableHead className="w-18">Kode</TableHead>
-              <TableHead>Mata Kuliah</TableHead>
-              <TableHead className="w-20 text-center">Semester</TableHead>
-              <TableHead className="w-16 text-center">SKS</TableHead>
-              <TableHead className="w-16 text-center">CLO</TableHead>
-              <TableHead className="w-24 text-center">Nilai</TableHead>
-              <TableHead className="w-12 text-right">{/* expand */}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredCourses.map((course) => {
-              const isExpanded = expandedCourse === course.id;
-              const courseAvg =
-                course.clos.reduce(
-                  (sum, clo) => sum + gradeToNumeric(clo.grade),
-                  0,
-                ) / course.clos.length;
-              const avgLetter =
-                courseAvg >= 3.7
-                  ? "A"
-                  : courseAvg >= 3.3
-                    ? "B+"
-                    : courseAvg >= 3.0
-                      ? "B"
-                      : courseAvg >= 2.7
-                        ? "B-"
-                        : courseAvg >= 2.3
-                          ? "C+"
-                          : courseAvg >= 2.0
-                            ? "C"
-                            : "D";
+          {/* Courses Table */}
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-surface-container-low hover:bg-surface-container-low">
+                <TableHead className="w-18">Kode</TableHead>
+                <TableHead>Mata Kuliah</TableHead>
+                <TableHead className="w-20 text-center">Semester</TableHead>
+                <TableHead className="w-16 text-center">SKS</TableHead>
+                <TableHead className="w-16 text-center">CLO</TableHead>
+                <TableHead className="w-24 text-center">Nilai</TableHead>
+                <TableHead className="w-12 text-right">
+                  {/* expand */}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredCourses.map((course) => {
+                const isExpanded = expandedCourse === course.id;
+                const courseAvg =
+                  course.clos.reduce(
+                    (sum, clo) => sum + gradeToNumeric(clo.grade),
+                    0,
+                  ) / course.clos.length;
+                const avgLetter =
+                  courseAvg >= 3.7
+                    ? "A"
+                    : courseAvg >= 3.3
+                      ? "B+"
+                      : courseAvg >= 3.0
+                        ? "B"
+                        : courseAvg >= 2.7
+                          ? "B-"
+                          : courseAvg >= 2.3
+                            ? "C+"
+                            : courseAvg >= 2.0
+                              ? "C"
+                              : "D";
 
-              return (
-                <React.Fragment key={course.id}>
-                  {/* Course Row */}
-                  <TableRow
-                    onClick={() =>
-                      setExpandedCourse(isExpanded ? null : course.id)
-                    }
-                    className="cursor-pointer"
-                  >
-                    <TableCell>
-                      <span className="font-label text-[11px] font-bold text-primary bg-primary-fixed/60 px-1.5 py-0.5 rounded whitespace-nowrap">
-                        {course.id}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-body text-sm font-medium text-on-background">
-                        {course.name}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className="font-label text-sm text-on-surface-variant">
-                        {course.semester}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className="font-label text-sm text-on-surface-variant">
-                        {course.sks}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className="font-label text-sm font-bold text-on-background">
-                        {course.clos.length}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-label text-xs font-bold ${gradeColor(avgLetter)}`}
-                      >
-                        {avgLetter}
-                        <span className="font-normal text-[10px] opacity-70">
-                          ({courseAvg.toFixed(1)})
-                        </span>
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Icon
-                        name={isExpanded ? "expand_less" : "expand_more"}
-                        className="text-on-surface-variant"
-                        size={20}
-                      />
-                    </TableCell>
-                  </TableRow>
-
-                  {/* Expanded CLO Detail Rows — always rendered, animated via CSS */}
-                  <TableRow
-                    className={`bg-surface-container-low/50 hover:bg-surface-container-low/50 ${
-                      isExpanded ? "" : "border-0"
-                    }`}
-                  >
-                    <TableCell colSpan={7} className="p-0 border-0">
-                      <div
-                        className={`grid transition-all duration-300 ease-in-out ${
-                          isExpanded
-                            ? "grid-rows-[1fr] opacity-100"
-                            : "grid-rows-[0fr] opacity-0"
-                        }`}
-                      >
-                        <div className="overflow-hidden">
-                          <div className="py-2 px-4">
-                            <span className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant">
-                              Course Learning Outcomes (CLO)
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                  {course.clos.map((clo) => (
+                return (
+                  <React.Fragment key={course.id}>
+                    {/* Course Row */}
                     <TableRow
-                      key={`${course.id}-${clo.code}`}
-                      className={`bg-surface-container-low/30 hover:bg-surface-container-low/50 ${
+                      onClick={() =>
+                        setExpandedCourse(isExpanded ? null : course.id)
+                      }
+                      className="cursor-pointer"
+                    >
+                      <TableCell>
+                        <span className="font-label text-[11px] font-bold text-primary bg-primary-fixed/60 px-1.5 py-0.5 rounded whitespace-nowrap">
+                          {course.id}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-body text-sm font-medium text-on-background">
+                          {course.name}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-label text-sm text-on-surface-variant">
+                          {course.semester}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-label text-sm text-on-surface-variant">
+                          {course.sks}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-label text-sm font-bold text-on-background">
+                          {course.clos.length}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-label text-xs font-bold ${gradeColor(avgLetter)}`}
+                        >
+                          {avgLetter}
+                          <span className="font-normal text-[10px] opacity-70">
+                            ({courseAvg.toFixed(1)})
+                          </span>
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Icon
+                          name={isExpanded ? "expand_less" : "expand_more"}
+                          className="text-on-surface-variant"
+                          size={20}
+                        />
+                      </TableCell>
+                    </TableRow>
+
+                    {/* Expanded CLO Detail Rows — always rendered, animated via CSS */}
+                    <TableRow
+                      className={`bg-surface-container-low/50 hover:bg-surface-container-low/50 ${
                         isExpanded ? "" : "border-0"
                       }`}
                     >
-                      <TableCell colSpan={5} className="p-0 border-0">
+                      <TableCell colSpan={7} className="p-0 border-0">
                         <div
                           className={`grid transition-all duration-300 ease-in-out ${
                             isExpanded
@@ -845,56 +838,86 @@ export default function ProfilePage() {
                           }`}
                         >
                           <div className="overflow-hidden">
-                            <div className="pl-14 py-3 pr-4 flex items-center gap-2">
-                              <span className="font-label text-xs font-bold text-primary bg-primary-fixed px-2 py-0.5 rounded whitespace-nowrap">
-                                {clo.code}
-                              </span>
-                              <span className="font-body text-sm text-on-surface-variant">
-                                {clo.description}
+                            <div className="py-2 px-4">
+                              <span className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant">
+                                Course Learning Outcomes (CLO)
                               </span>
                             </div>
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="p-0 border-0 text-center">
-                        <div
-                          className={`grid transition-all duration-300 ease-in-out ${
-                            isExpanded
-                              ? "grid-rows-[1fr] opacity-100"
-                              : "grid-rows-[0fr] opacity-0"
-                          }`}
-                        >
-                          <div className="overflow-hidden">
-                            <div className="py-3 px-4">
-                              <span
-                                className={`inline-flex px-2.5 py-1 rounded-full font-label text-xs font-bold ${gradeColor(
-                                  clo.grade,
-                                )}`}
-                              >
-                                {clo.grade}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="p-0 border-0" />
                     </TableRow>
-                  ))}
-                </React.Fragment>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-
-      {filteredCourses.length === 0 && (
-        <div className="text-center py-16">
-          <Icon name="school" className="text-outline mx-auto mb-4" size={48} />
-          <p className="font-headline text-lg text-on-surface-variant">
-            Tidak ada mata kuliah untuk semester ini
-          </p>
+                    {course.clos.map((clo) => (
+                      <TableRow
+                        key={`${course.id}-${clo.code}`}
+                        className={`bg-surface-container-low/30 hover:bg-surface-container-low/50 ${
+                          isExpanded ? "" : "border-0"
+                        }`}
+                      >
+                        <TableCell colSpan={5} className="p-0 border-0">
+                          <div
+                            className={`grid transition-all duration-300 ease-in-out ${
+                              isExpanded
+                                ? "grid-rows-[1fr] opacity-100"
+                                : "grid-rows-[0fr] opacity-0"
+                            }`}
+                          >
+                            <div className="overflow-hidden">
+                              <div className="pl-14 py-3 pr-4 flex items-center gap-2">
+                                <span className="font-label text-xs font-bold text-primary bg-primary-fixed px-2 py-0.5 rounded whitespace-nowrap">
+                                  {clo.code}
+                                </span>
+                                <span className="font-body text-sm text-on-surface-variant">
+                                  {clo.description}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="p-0 border-0 text-center">
+                          <div
+                            className={`grid transition-all duration-300 ease-in-out ${
+                              isExpanded
+                                ? "grid-rows-[1fr] opacity-100"
+                                : "grid-rows-[0fr] opacity-0"
+                            }`}
+                          >
+                            <div className="overflow-hidden">
+                              <div className="py-3 px-4">
+                                <span
+                                  className={`inline-flex px-2.5 py-1 rounded-full font-label text-xs font-bold ${gradeColor(
+                                    clo.grade,
+                                  )}`}
+                                >
+                                  {clo.grade}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="p-0 border-0" />
+                      </TableRow>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
-      )}
-    </div>
+
+        {filteredCourses.length === 0 && (
+          <div className="text-center py-16">
+            <Icon
+              name="school"
+              className="text-outline mx-auto mb-4"
+              size={48}
+            />
+            <p className="font-headline text-lg text-on-surface-variant">
+              Tidak ada mata kuliah untuk semester ini
+            </p>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
