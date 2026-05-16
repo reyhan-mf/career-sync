@@ -481,6 +481,18 @@ const coursesData = [
   },
 ];
 
+/* ── Student Profile Data ── */
+const studentData = {
+  name: "Ahmad Rizki Pratama",
+  nim: "21120123120001",
+  prodi: "Teknik Informatika",
+  fakultas: "Fakultas Ilmu Komputer",
+  angkatan: 2023,
+  status: "Aktif" as const,
+  dosenWali: "Dr. Ir. Bambang Setiawan, M.Kom.",
+  email: "ahmad.rizki@students.univ.ac.id",
+};
+
 function gradeColor(grade: string) {
   if (grade.startsWith("A")) return "text-green-700 bg-green-50";
   if (grade.startsWith("B")) return "text-blue-700 bg-blue-50";
@@ -528,12 +540,105 @@ export default function ProfilePage() {
       {/* Header */}
       <div className="space-y-2">
         <h1 className="font-headline text-3xl font-bold text-on-background">
-          Profil Kompetensi
+          Profil Mahasiswa
         </h1>
         <p className="font-body text-on-surface-variant">
-          Lihat semua mata kuliah dan Course Learning Outcomes (CLO) beserta
-          nilai Anda.
+          Informasi mahasiswa, data akademik, dan capaian pembelajaran per mata
+          kuliah.
         </p>
+      </div>
+
+      {/* Student Profile Card */}
+      <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border p-6">
+        <div className="flex flex-col sm:flex-row items-start gap-6">
+          {/* Avatar */}
+          <div className="shrink-0 w-20 h-20 bg-primary rounded-2xl flex items-center justify-center shadow-lg">
+            <span className="font-headline text-3xl font-bold text-on-primary">
+              {studentData.name
+                .split(" ")
+                .map((n) => n[0])
+                .slice(0, 2)
+                .join("")}
+            </span>
+          </div>
+
+          {/* Info */}
+          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-3">
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                Nama Lengkap
+              </p>
+              <p className="font-body text-sm font-semibold text-on-background">
+                {studentData.name}
+              </p>
+            </div>
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                NIM
+              </p>
+              <p className="font-body text-sm font-semibold text-on-background">
+                {studentData.nim}
+              </p>
+            </div>
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                Program Studi
+              </p>
+              <p className="font-body text-sm font-semibold text-on-background">
+                {studentData.prodi}
+              </p>
+            </div>
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                Fakultas
+              </p>
+              <p className="font-body text-sm font-semibold text-on-background">
+                {studentData.fakultas}
+              </p>
+            </div>
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                Angkatan
+              </p>
+              <p className="font-body text-sm font-semibold text-on-background">
+                {studentData.angkatan}
+              </p>
+            </div>
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                Status
+              </p>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-label text-xs font-bold text-green-700 bg-green-50">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-600" />
+                {studentData.status}
+              </span>
+            </div>
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                Dosen Wali
+              </p>
+              <p className="font-body text-sm font-semibold text-on-background">
+                {studentData.dosenWali}
+              </p>
+            </div>
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                Email
+              </p>
+              <p className="font-body text-sm font-semibold text-on-background">
+                {studentData.email}
+              </p>
+            </div>
+            <div>
+              <p className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant">
+                IPK
+              </p>
+              <p className="font-headline text-xl font-bold text-primary">
+                {avgGPA}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Summary */}

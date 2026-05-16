@@ -1,24 +1,24 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import Icon from "@/components/ui/Icon";
 import TopBar from "@/components/layout/TopBar";
 
-/* ── Student CLO Data (from their academic profile) ── */
+/* ── Student CLO Data ── */
 const studentCLOs = [
   { code: "CLO1", description: "Mampu membuat REST API menggunakan framework modern", grade: "A", weight: 1.0 },
   { code: "CLO2", description: "Mampu merancang dan mengimplementasikan database SQL", grade: "B", weight: 0.7 },
   { code: "CLO3", description: "Mampu membuat aplikasi Android menggunakan Kotlin", grade: "C", weight: 0.4 },
 ];
 
-/* ── Job Data with requirements & CLO similarity scores ── */
+/* ── Job Data ── */
 const jobDetail = {
   title: "Frontend Developer",
   company: "Tokopedia",
   location: "Jakarta, Indonesia",
   type: "Full-time",
-  salary: "Rp 10-18 jt/bulan",
+  salary: "Rp 10–18 jt/bulan",
   deadline: "30 Mei 2026",
   posted: "10 Mei 2026",
   description:
@@ -30,7 +30,6 @@ const jobDetail = {
     "Melakukan code review dan mentoring junior developer",
     "Optimasi performa dan aksesibilitas aplikasi web",
   ],
-  /* Each requirement has pre-computed similarity with each student CLO */
   requirements: [
     {
       code: "Req A",
@@ -71,37 +70,72 @@ const jobDetail = {
   ],
 };
 
-/* ── Helper Functions ── */
+/* ── Helpers ── */
 function getReqScore(req: (typeof jobDetail.requirements)[0]) {
   return Math.max(...req.similarities.map((s) => s.weightedScore));
 }
 
 function getBestCLO(req: (typeof jobDetail.requirements)[0]) {
-  let best = req.similarities[0];
-  for (const s of req.similarities) {
-    if (s.weightedScore > best.weightedScore) best = s;
-  }
-  return best;
+  return req.similarities.reduce((a, b) => (b.weightedScore > a.weightedScore ? b : a));
 }
 
-function getStatusIcon(score: number) {
-  if (score >= 0.7) return { icon: "check_circle", color: "text-green-700", label: "Terpenuhi", bg: "bg-green-50" };
-  if (score >= 0.4) return { icon: "warning", color: "text-tertiary", label: "Parsial", bg: "bg-tertiary-fixed" };
-  return { icon: "cancel", color: "text-error", label: "Gap", bg: "bg-red-50" };
+function getStatus(score: number) {
+  if (score >= 0.7) return { icon: "check_circle", color: "text-green-700", label: "Terpenuhi", bg: "bg-green-50", bar: "bg-green-500" };
+  if (score >= 0.4) return { icon: "warning", color: "text-tertiary", label: "Parsial", bg: "bg-tertiary-fixed", bar: "bg-yellow-400" };
+  return { icon: "cancel", color: "text-error", label: "Gap", bg: "bg-red-50", bar: "bg-red-400" };
+}
+
+function gradeColor(grade: string) {
+  if (grade.startsWith("A")) return "bg-green-50 text-green-700";
+  if (grade.startsWith("B")) return "bg-blue-50 text-blue-700";
+  return "bg-tertiary-fixed text-on-tertiary-container";
+}
+
+/* ── Score Ring ── */
+function ScoreRing({ score }: { score: number }) {
+  const pct = Math.round(score * 100);
+  const r = 42;
+  const circ = 2 * Math.PI * r;
+  const dash = (pct / 100) * circ;
+  const color = pct >= 70 ? "#2e7d32" : pct >= 40 ? "#f59e0b" : "#dc2626";
+
+  return (
+    <div className="relative flex items-center justify-center w-28 h-28">
+      <svg width="112" height="112" viewBox="0 0 112 112" className="-rotate-90">
+        <circle cx="56" cy="56" r={r} fill="none" stroke="currentColor" strokeWidth="8" className="text-surface-container" />
+        <circle
+          cx="56" cy="56" r={r} fill="none"
+          stroke={color} strokeWidth="8"
+          strokeDasharray={`${dash} ${circ}`}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dasharray 0.6s ease" }}
+        />
+      </svg>
+      <div className="absolute text-center">
+        <p className="font-headline text-2xl font-bold text-on-background">{pct}%</p>
+        <p className="font-label text-[10px] text-on-surface-variant">match</p>
+      </div>
+    </div>
+  );
 }
 
 export default function JobDetailPage() {
-  const reqScores = jobDetail.requirements.map((r) => getReqScore(r));
+  const [activeTab, setActiveTab] = useState<"overview" | "analysis">("overview");
+
+  const reqScores = jobDetail.requirements.map(getReqScore);
   const overallScore = reqScores.reduce((a, b) => a + b, 0) / reqScores.length;
 
-  const metCount = reqScores.filter((s) => s >= 0.7).length;
+  const metCount     = reqScores.filter((s) => s >= 0.7).length;
   const partialCount = reqScores.filter((s) => s >= 0.4 && s < 0.7).length;
-  const gapCount = reqScores.filter((s) => s < 0.4).length;
+  const gapCount     = reqScores.filter((s) => s < 0.4).length;
+
+  const gapReqs = jobDetail.requirements.filter((r) => getReqScore(r) < 0.7);
 
   return (
     <>
       <TopBar />
       <div className="max-w-5xl mx-auto p-6 lg:p-10 space-y-8">
+
         {/* Back */}
         <Link
           href="/student/job-matching"
@@ -110,259 +144,220 @@ export default function JobDetailPage() {
           <Icon name="arrow_back" size={18} /> Kembali ke Job Matching
         </Link>
 
-        {/* Job Header */}
+        {/* ── Job Header ── */}
         <div className="bg-surface-container-lowest rounded-2xl p-8 shadow-ambient ghost-border">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-14 h-14 bg-primary-fixed rounded-xl flex items-center justify-center">
-                  <Icon name="code" className="text-primary" size={28} />
-                </div>
-                <div>
-                  <h1 className="font-headline text-2xl font-bold text-on-background">
-                    {jobDetail.title}
-                  </h1>
-                  <p className="font-body text-on-surface-variant">
-                    {jobDetail.company}
-                  </p>
-                </div>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-primary-fixed rounded-xl flex items-center justify-center shrink-0">
+                <Icon name="code" className="text-primary" size={28} />
               </div>
-              <div className="flex flex-wrap gap-3 mt-4">
-                {[
-                  { icon: "location_on", text: jobDetail.location },
-                  { icon: "work", text: jobDetail.type },
-                  { icon: "payments", text: jobDetail.salary },
-                  { icon: "event", text: `Deadline: ${jobDetail.deadline}` },
-                ].map((info) => (
-                  <span
-                    key={info.icon}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface-container rounded-full font-label text-xs text-on-surface-variant"
-                  >
-                    <Icon name={info.icon} size={14} /> {info.text}
-                  </span>
-                ))}
+              <div>
+                <h1 className="font-headline text-2xl font-bold text-on-background">{jobDetail.title}</h1>
+                <p className="font-body text-on-surface-variant">{jobDetail.company}</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {[
+                    { icon: "location_on", text: jobDetail.location },
+                    { icon: "work",        text: jobDetail.type },
+                    { icon: "payments",    text: jobDetail.salary },
+                    { icon: "event",       text: `Deadline: ${jobDetail.deadline}` },
+                  ].map((info) => (
+                    <span
+                      key={info.icon}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface-container rounded-full font-label text-xs text-on-surface-variant"
+                    >
+                      <Icon name={info.icon} size={13} /> {info.text}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
-            <div className="flex flex-col items-end gap-3">
-              <div className="text-center">
-                <p className="font-label text-xs text-on-surface-variant mb-1">
-                  Match Score
-                </p>
-                <p className="font-headline text-4xl font-bold text-primary">
-                  {(overallScore * 100).toFixed(1)}%
-                </p>
-                <p className="font-label text-[10px] text-on-surface-variant mt-0.5">
-                  avg({reqScores.map((s) => s.toFixed(3)).join(" + ")}) / {reqScores.length}
-                </p>
-              </div>
-              <button className="btn-gradient rounded-xl px-8 py-3 font-label font-bold shadow-[0_4px_14px_rgb(9,76,178,0.25)] flex items-center gap-2">
+
+            <div className="flex flex-col items-center gap-4 shrink-0">
+              <ScoreRing score={overallScore} />
+              <button className="btn-gradient rounded-xl px-8 py-3 font-label font-bold shadow-[0_4px_14px_rgb(9,76,178,0.25)] flex items-center gap-2 whitespace-nowrap">
                 <Icon name="send" size={18} /> Lamar Sekarang
               </button>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Job Details */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Description */}
-            <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
-              <h2 className="font-headline text-xl font-bold text-on-background mb-4">
-                Deskripsi
-              </h2>
-              <p className="font-body text-sm text-on-surface-variant leading-relaxed">
-                {jobDetail.description}
-              </p>
-            </div>
+        {/* ── Tabs ── */}
+        <div className="flex gap-1 bg-surface-container p-1 rounded-xl w-fit">
+          {(["overview", "analysis"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-5 py-2 rounded-lg font-label text-sm font-medium transition-all ${
+                activeTab === tab
+                  ? "bg-surface-container-lowest text-primary shadow-ambient"
+                  : "text-on-surface-variant hover:text-on-background"
+              }`}
+            >
+              {tab === "overview" ? "Gambaran Umum" : "Analisis Kompetensi"}
+            </button>
+          ))}
+        </div>
 
-            {/* Responsibilities */}
-            <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
-              <h2 className="font-headline text-xl font-bold text-on-background mb-4">
-                Tanggung Jawab
-              </h2>
-              <ul className="space-y-3">
-                {jobDetail.responsibilities.map((r, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <Icon name="check_circle" className="text-primary mt-0.5" size={18} />
-                    <span className="font-body text-sm text-on-surface-variant">{r}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+        {activeTab === "overview" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left: Description + Responsibilities */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+                <h2 className="font-headline text-xl font-bold text-on-background mb-3">Deskripsi</h2>
+                <p className="font-body text-sm text-on-surface-variant leading-relaxed">{jobDetail.description}</p>
+              </div>
 
-            {/* CLO-based Requirement Analysis (detailed) */}
-            <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
-              <h2 className="font-headline text-xl font-bold text-on-background mb-2">
-                Analisis Per-Requirement
-              </h2>
-              <p className="font-body text-xs text-on-surface-variant mb-6">
-                Setiap requirement dihitung: max(sim(CLO, Req) × bobot_nilai) dari semua CLO mahasiswa
-              </p>
-              <div className="space-y-6">
-                {jobDetail.requirements.map((req) => {
-                  const score = getReqScore(req);
-                  const best = getBestCLO(req);
-                  const status = getStatusIcon(score);
-                  return (
-                    <div key={req.code} className="p-4 rounded-xl bg-surface-container-low">
-                      {/* Req header */}
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-label text-xs font-bold text-primary bg-primary-fixed px-2 py-0.5 rounded">
-                              {req.code}
-                            </span>
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-label text-xs font-bold ${status.bg} ${status.color}`}>
-                              <Icon name={status.icon} size={12} />
-                              {status.label}
-                            </span>
-                          </div>
-                          <p className="font-body text-sm text-on-background font-medium">
-                            {req.description}
-                          </p>
-                        </div>
-                        <span className="font-headline text-xl font-bold text-primary ml-4">
-                          {(score * 100).toFixed(1)}%
-                        </span>
-                      </div>
-
-                      {/* CLO similarity breakdown */}
-                      <div className="space-y-2">
-                        {req.similarities.map((s) => {
-                          const isBest = s === best;
-                          const cloInfo = studentCLOs.find((c) => c.code === s.clo);
-                          return (
-                            <div
-                              key={s.clo}
-                              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
-                                isBest ? "bg-primary-fixed/40" : "bg-surface-container"
-                              }`}
-                            >
-                              <span className="font-label text-xs font-bold text-on-surface-variant w-10">
-                                {s.clo}
-                              </span>
-                              <span className="font-label text-[11px] text-on-surface-variant">
-                                sim={s.sim.toFixed(2)} × {cloInfo?.weight.toFixed(1)} ({cloInfo?.grade})
-                              </span>
-                              <span className="font-label text-xs ml-auto">
-                                = <span className={`font-bold ${isBest ? "text-primary" : "text-on-surface-variant"}`}>
-                                  {s.weightedScore.toFixed(3)}
-                                </span>
-                              </span>
-                              {isBest && (
-                                <span className="font-label text-[10px] text-primary font-bold">
-                                  ← max
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+                <h2 className="font-headline text-xl font-bold text-on-background mb-4">Tanggung Jawab</h2>
+                <ul className="space-y-3">
+                  {jobDetail.responsibilities.map((r, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <Icon name="check_circle" className="text-primary mt-0.5 shrink-0" size={18} />
+                      <span className="font-body text-sm text-on-surface-variant">{r}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
-          </div>
 
-          {/* Right: Summary Sidebar */}
-          <div className="space-y-6">
-            {/* Student CLO Profile */}
-            <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
-              <h2 className="font-headline text-lg font-bold text-on-background mb-4">
-                CLO Mahasiswa
-              </h2>
-              <div className="space-y-3">
-                {studentCLOs.map((clo) => (
-                  <div key={clo.code} className="p-3 rounded-xl bg-surface-container-low">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-label text-sm font-bold text-primary">{clo.code}</span>
-                      <span className={`px-2 py-0.5 rounded font-label text-xs font-bold ${
-                        clo.grade.startsWith("A") ? "bg-green-50 text-green-700" :
-                        clo.grade.startsWith("B") ? "bg-blue-50 text-blue-700" :
-                        "bg-tertiary-fixed text-on-tertiary-container"
-                      }`}>
-                        {clo.grade} (bobot: {clo.weight.toFixed(1)})
+            {/* Right: Match Summary */}
+            <div className="space-y-6">
+              {/* Stats */}
+              <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+                <h2 className="font-headline text-lg font-bold text-on-background mb-4">Ringkasan Kecocokan</h2>
+                <div className="space-y-3">
+                  {[
+                    { icon: "check_circle", label: "Terpenuhi",   count: metCount,     color: "text-green-700" },
+                    { icon: "warning",      label: "Parsial",     count: partialCount, color: "text-tertiary"  },
+                    { icon: "cancel",       label: "Perlu Upskill", count: gapCount,   color: "text-error"     },
+                  ].map((item) => (
+                    <div key={item.label} className="flex items-center justify-between">
+                      <span className={`inline-flex items-center gap-2 font-label text-sm ${item.color}`}>
+                        <Icon name={item.icon} size={16} /> {item.label}
+                      </span>
+                      <span className={`font-label text-sm font-bold ${item.color}`}>
+                        {item.count} / {jobDetail.requirements.length}
                       </span>
                     </div>
-                    <p className="font-body text-xs text-on-surface-variant">{clo.description}</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+
+              {/* Upskilling Suggestions */}
+              {gapReqs.length > 0 && (
+                <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+                  <h2 className="font-headline text-lg font-bold text-on-background mb-3">Rekomendasi Upskill</h2>
+                  <div className="space-y-3">
+                    {gapReqs.map((r) => {
+                      const score = getReqScore(r);
+                      const s = getStatus(score);
+                      return (
+                        <div key={r.code} className={`p-3 rounded-xl ${score < 0.4 ? "bg-error-container/30" : "bg-tertiary-fixed/30"}`}>
+                          <p className={`font-label text-xs font-bold mb-0.5 ${s.color}`}>{s.label}</p>
+                          <p className="font-body text-xs text-on-surface-variant">
+                            {r.description}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "analysis" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left: Per-Requirement Analysis */}
+            <div className="lg:col-span-2 space-y-4">
+              {jobDetail.requirements.map((req) => {
+                const score   = getReqScore(req);
+                const best    = getBestCLO(req);
+                const status  = getStatus(score);
+                const cloInfo = studentCLOs.find((c) => c.code === best.clo);
+
+                return (
+                  <div key={req.code} className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
+                    <div className="flex items-start gap-4">
+                      {/* Status icon */}
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${status.bg}`}>
+                        <Icon name={status.icon} className={status.color} size={20} />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-3 mb-1">
+                          <p className="font-body text-sm font-semibold text-on-background">{req.description}</p>
+                          <span className={`font-label text-xs font-bold px-2 py-0.5 rounded ${status.bg} ${status.color} shrink-0`}>
+                            {status.label}
+                          </span>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div className="h-1.5 bg-surface-container rounded-full mt-2 mb-3">
+                          <div
+                            className={`h-full rounded-full transition-all ${status.bar}`}
+                            style={{ width: `${Math.round(score * 100)}%` }}
+                          />
+                        </div>
+
+                        {/* Matched competency */}
+                        {score >= 0.4 && cloInfo ? (
+                          <div className="flex items-center gap-2">
+                            <Icon name="school" size={14} className="text-on-surface-variant shrink-0" />
+                            <p className="font-body text-xs text-on-surface-variant">
+                              {score >= 0.7 ? "Kompetensi terkuat" : "Kompetensi terdekat"}:{" "}
+                              <span className="font-semibold text-on-background">{cloInfo.description}</span>
+                              <span className={`ml-2 px-1.5 py-0.5 rounded font-label text-[10px] font-bold ${gradeColor(cloInfo.grade)}`}>
+                                {cloInfo.grade}
+                              </span>
+                            </p>
+                          </div>
+                        ) : score < 0.4 ? (
+                          <div className="flex items-center gap-2">
+                            <Icon name="school" size={14} className="text-error shrink-0" />
+                            <p className="font-body text-xs text-on-surface-variant">
+                              Belum ada kompetensi yang relevan untuk kualifikasi ini
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            {/* Match Summary */}
-            <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
-              <h2 className="font-headline text-lg font-bold text-on-background mb-4">
-                Ringkasan Match
-              </h2>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="font-label text-sm text-on-surface-variant">Total Requirements</span>
-                  <span className="font-label text-sm font-bold text-on-background">{jobDetail.requirements.length}</span>
+            {/* Right: Student Competency Profile */}
+            <div className="space-y-6">
+              <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+                <h2 className="font-headline text-lg font-bold text-on-background mb-4">Kompetensi Kamu</h2>
+                <div className="space-y-3">
+                  {studentCLOs.map((clo) => (
+                    <div key={clo.code} className="p-3 rounded-xl bg-surface-container-low">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-label text-xs font-bold text-primary">{clo.code}</span>
+                        <span className={`px-2 py-0.5 rounded font-label text-xs font-bold ${gradeColor(clo.grade)}`}>
+                          Nilai {clo.grade}
+                        </span>
+                      </div>
+                      <p className="font-body text-xs text-on-surface-variant">{clo.description}</p>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="inline-flex items-center gap-1 font-label text-sm text-green-700">
-                    <Icon name="check_circle" size={16} /> Terpenuhi
-                  </span>
-                  <span className="font-label text-sm font-bold text-green-700">{metCount}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="inline-flex items-center gap-1 font-label text-sm text-tertiary">
-                    <Icon name="warning" size={16} /> Parsial
-                  </span>
-                  <span className="font-label text-sm font-bold text-tertiary">{partialCount}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="inline-flex items-center gap-1 font-label text-sm text-error">
-                    <Icon name="cancel" size={16} /> Gap
-                  </span>
-                  <span className="font-label text-sm font-bold text-error">{gapCount}</span>
-                </div>
-                <div className="pt-3 mt-3 border-t border-surface-variant">
-                  <div className="flex justify-between items-center">
-                    <span className="font-label text-sm font-bold text-on-background">Overall Score</span>
-                    <span className="font-headline text-2xl font-bold text-primary">
-                      {(overallScore * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  <p className="font-body text-[10px] text-on-surface-variant mt-1">
-                    ({reqScores.map((s) => s.toFixed(3)).join(" + ")}) / {reqScores.length}
+              </div>
+
+              <div className="bg-primary-fixed/30 rounded-2xl p-4">
+                <div className="flex items-start gap-3">
+                  <Icon name="info" className="text-primary mt-0.5 shrink-0" size={18} />
+                  <p className="font-body text-xs text-on-surface-variant leading-relaxed">
+                    Analisis ini didasarkan pada kesesuaian kompetensi akademikmu dengan kebutuhan posisi, diperhitungkan bersama pencapaian nilaimu.
                   </p>
                 </div>
               </div>
             </div>
-
-            {/* Recommendations */}
-            <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
-              <h2 className="font-headline text-lg font-bold text-on-background mb-3">
-                Rekomendasi Peningkatan
-              </h2>
-              <div className="space-y-3">
-                {jobDetail.requirements
-                  .filter((r) => getReqScore(r) < 0.7)
-                  .map((r) => {
-                    const score = getReqScore(r);
-                    const status = getStatusIcon(score);
-                    return (
-                      <div key={r.code} className={`p-3 rounded-xl ${score < 0.4 ? "bg-error-container/30" : "bg-tertiary-fixed/30"}`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`font-label text-xs font-bold ${status.color}`}>{r.code}</span>
-                          <span className="font-label text-xs text-on-surface-variant">
-                            Skor: {(score * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                        <p className="font-body text-xs text-on-surface-variant">
-                          Tingkatkan kompetensi terkait <strong>&quot;{r.description}&quot;</strong> melalui
-                          kursus atau proyek untuk meningkatkan match score.
-                        </p>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
           </div>
-        </div>
+        )}
       </div>
     </>
   );

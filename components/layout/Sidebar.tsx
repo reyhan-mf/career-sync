@@ -26,7 +26,7 @@ export interface NavItem {
 interface SidebarProps {
   items: NavItem[];
   bottomItems?: NavItem[];
-  role: "student" | "hr" | "admin";
+  role: "student" | "hr" | "admin" | "superadmin";
 }
 
 const COLLAPSED_WIDTH = "w-[72px]";
@@ -36,6 +36,7 @@ const roleLabels: Record<string, string> = {
   student: "Mahasiswa",
   hr: "HR Portal",
   admin: "Administrator",
+  superadmin: "Superadmin",
 };
 
 /* ─── Brand section ─── */
