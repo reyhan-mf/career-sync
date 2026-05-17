@@ -54,6 +54,7 @@ export const prodiIntegrationStatus: ProdiStatus[] = [
   },
 ];
 
+
 export interface MataKuliahItem {
   kode: string;
   nama: string;
@@ -482,3 +483,4 @@ export const initialAdminAccounts: AdminAccount[] = [
     dateCreated: "2026-01-18",
   },
 ];
+

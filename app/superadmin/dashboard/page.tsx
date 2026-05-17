@@ -4,11 +4,8 @@ import React from "react";
 import Link from "next/link";
 import Icon from "@/components/ui/Icon";
 import StatCard from "@/components/ui/StatCard";
-import {
-  initialAdminAccounts,
-  prodiIntegrationStatus,
-  superadminProfile,
-} from "@/lib/admin-mock";
+import { superadminProfile } from "@/lib/admin-mock";
+import { useSuperadminData } from "@/app/superadmin/SuperadminDataProvider";
 
 const statusStyles: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   active: { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500", label: "Aktif" },
@@ -17,9 +14,27 @@ const statusStyles: Record<string, { bg: string; text: string; dot: string; labe
 };
 
 export default function SuperadminDashboard() {
-  const totalAdmin = initialAdminAccounts.length;
-  const activeAdmin = initialAdminAccounts.filter((a) => a.status === "active").length;
-  const integratedProdi = prodiIntegrationStatus.filter((p) => p.status === "active").length;
+  const { admins, prodis } = useSuperadminData();
+
+  const totalAdmin = admins.length;
+  const activeAdmin = admins.filter((a) => a.status === "active").length;
+  const integratedProdi = prodis.filter((p) => p.status === "active").length;
+
+  const prodiWithoutAdmin = prodis.filter(
+    (p) => !admins.some((a) => a.prodi === p.name),
+  );
+  const neverLoggedIn = admins.filter(
+    (a) => a.lastLogin.toLowerCase().includes("belum"),
+  );
+  const inactiveAdmins = admins.filter((a) => a.status === "inactive");
+
+  const adminCountByProdi = prodis
+    .map((p) => ({
+      name: p.name,
+      count: admins.filter((a) => a.prodi === p.name).length,
+    }))
+    .sort((a, b) => b.count - a.count);
+  const maxAdminCount = Math.max(1, ...adminCountByProdi.map((p) => p.count));
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -60,8 +75,185 @@ export default function SuperadminDashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon="admin_panel_settings" label="Total Admin Prodi" value={totalAdmin} />
         <StatCard icon="check_circle" label="Admin Aktif" value={activeAdmin} iconBgClass="bg-green-50" iconTextClass="text-green-700" />
-        <StatCard icon="school" label="Prodi Terintegrasi" value={`${integratedProdi}/${prodiIntegrationStatus.length}`} iconBgClass="bg-blue-50" iconTextClass="text-blue-700" />
-        <StatCard icon="cloud_sync" label="Status SSO" value="Simulasi" iconBgClass="bg-tertiary-fixed" iconTextClass="text-tertiary" />
+        <StatCard
+          icon="domain_disabled"
+          label="Prodi Tanpa Admin"
+          value={prodiWithoutAdmin.length}
+          iconBgClass={prodiWithoutAdmin.length > 0 ? "bg-amber-50" : "bg-green-50"}
+          iconTextClass={prodiWithoutAdmin.length > 0 ? "text-amber-700" : "text-green-700"}
+        />
+        <StatCard icon="school" label="Prodi Terintegrasi" value={`${integratedProdi}/${prodis.length}`} iconBgClass="bg-blue-50" iconTextClass="text-blue-700" />
+      </div>
+
+      {/* Perlu Perhatian */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Icon name="priority_high" size={20} className="text-amber-700" />
+          <h2 className="font-headline text-xl font-bold text-on-background">Perlu Perhatian</h2>
+        </div>
+        <p className="font-body text-sm text-on-surface-variant">
+          Daftar tindakan yang sebaiknya ditangani superadmin untuk menjaga cakupan layanan dan keamanan akun.
+        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-2">
+          {/* Prodi tanpa admin */}
+          <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 bg-amber-50 rounded-xl flex items-center justify-center">
+                  <Icon name="domain_disabled" size={18} className="text-amber-700" />
+                </div>
+                <div>
+                  <p className="font-label text-xs text-on-surface-variant uppercase tracking-wider">Belum Dilayani</p>
+                  <p className="font-headline text-lg font-bold text-on-background leading-tight">Prodi Tanpa Admin</p>
+                </div>
+              </div>
+              <span className="font-headline text-2xl font-bold text-amber-700">{prodiWithoutAdmin.length}</span>
+            </div>
+            {prodiWithoutAdmin.length === 0 ? (
+              <p className="font-body text-sm text-on-surface-variant flex-1 flex items-center justify-center text-center py-3">
+                Semua prodi sudah punya admin.
+              </p>
+            ) : (
+              <ul className="space-y-1.5 flex-1">
+                {prodiWithoutAdmin.slice(0, 4).map((p) => (
+                  <li key={p.name} className="flex items-center gap-2 text-sm">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span className="font-body text-on-background truncate">{p.name}</span>
+                  </li>
+                ))}
+                {prodiWithoutAdmin.length > 4 && (
+                  <li className="font-label text-xs text-on-surface-variant pt-1">
+                    +{prodiWithoutAdmin.length - 4} prodi lainnya
+                  </li>
+                )}
+              </ul>
+            )}
+            {prodiWithoutAdmin.length > 0 && (
+              <Link
+                href="/superadmin/admins"
+                className="mt-4 font-label text-sm font-semibold text-primary hover:opacity-80 transition-opacity inline-flex items-center gap-1"
+              >
+                Tambah admin <Icon name="arrow_forward" size={16} />
+              </Link>
+            )}
+          </div>
+
+          {/* Akun belum aktif (belum login) */}
+          <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
+                  <Icon name="schedule" size={18} className="text-blue-700" />
+                </div>
+                <div>
+                  <p className="font-label text-xs text-on-surface-variant uppercase tracking-wider">Akun Pending</p>
+                  <p className="font-headline text-lg font-bold text-on-background leading-tight">Belum Pernah Login</p>
+                </div>
+              </div>
+              <span className="font-headline text-2xl font-bold text-blue-700">{neverLoggedIn.length}</span>
+            </div>
+            {neverLoggedIn.length === 0 ? (
+              <p className="font-body text-sm text-on-surface-variant flex-1 flex items-center justify-center text-center py-3">
+                Semua admin telah aktif login.
+              </p>
+            ) : (
+              <ul className="space-y-1.5 flex-1">
+                {neverLoggedIn.slice(0, 4).map((a) => (
+                  <li key={a.id} className="text-sm">
+                    <p className="font-body text-on-background truncate">{a.name}</p>
+                    <p className="font-label text-xs text-on-surface-variant truncate">{a.prodi} • dibuat {a.dateCreated}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {neverLoggedIn.length > 0 && (
+              <p className="mt-4 font-label text-xs text-on-surface-variant leading-snug">
+                Tindak lanjut: kirim ulang undangan atau verifikasi email institusi.
+              </p>
+            )}
+          </div>
+
+          {/* Admin nonaktif */}
+          <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center">
+                  <Icon name="block" size={18} className="text-red-700" />
+                </div>
+                <div>
+                  <p className="font-label text-xs text-on-surface-variant uppercase tracking-wider">Keamanan</p>
+                  <p className="font-headline text-lg font-bold text-on-background leading-tight">Admin Nonaktif</p>
+                </div>
+              </div>
+              <span className="font-headline text-2xl font-bold text-red-700">{inactiveAdmins.length}</span>
+            </div>
+            {inactiveAdmins.length === 0 ? (
+              <p className="font-body text-sm text-on-surface-variant flex-1 flex items-center justify-center text-center py-3">
+                Tidak ada akun nonaktif.
+              </p>
+            ) : (
+              <ul className="space-y-1.5 flex-1">
+                {inactiveAdmins.slice(0, 4).map((a) => (
+                  <li key={a.id} className="text-sm">
+                    <p className="font-body text-on-background truncate">{a.name}</p>
+                    <p className="font-label text-xs text-on-surface-variant truncate">{a.prodi} • login terakhir: {a.lastLogin}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {inactiveAdmins.length > 0 && (
+              <p className="mt-4 font-label text-xs text-on-surface-variant leading-snug">
+                Tinjau akun: aktifkan kembali bila masih dipakai, atau hapus untuk mengurangi attack surface.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Distribusi Admin per Prodi */}
+      <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+          <div>
+            <h2 className="font-headline text-xl font-bold text-on-background">Distribusi Admin per Prodi</h2>
+            <p className="font-body text-sm text-on-surface-variant mt-1">
+              Bandingkan beban admin antar prodi. Prodi dengan 1 admin berisiko jika admin tunggal cuti atau pindah tugas.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-2.5">
+          {adminCountByProdi.map((p) => {
+            const widthPct = (p.count / maxAdminCount) * 100;
+            const isEmpty = p.count === 0;
+            const isSingle = p.count === 1;
+            return (
+              <div key={p.name} className="flex items-center gap-3">
+                <p className="font-label text-sm text-on-background w-48 truncate shrink-0">{p.name}</p>
+                <div className="flex-1 h-7 bg-surface-container-low rounded-lg overflow-hidden relative">
+                  {!isEmpty && (
+                    <div
+                      className={`h-full ${isSingle ? "bg-amber-400/70" : "bg-primary/70"} transition-all`}
+                      style={{ width: `${widthPct}%` }}
+                    />
+                  )}
+                </div>
+                <div className="w-24 text-right shrink-0">
+                  {isEmpty ? (
+                    <span className="font-label text-xs font-semibold text-amber-700">Belum ada</span>
+                  ) : (
+                    <span className="font-label text-sm font-semibold text-on-background">
+                      {p.count} <span className="text-on-surface-variant font-normal">admin</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-4 pt-4 border-t border-outline-variant/20 flex flex-wrap gap-4 text-xs font-label text-on-surface-variant">
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-primary/70" /> 2+ admin (aman)</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400/70" /> 1 admin (single point of failure)</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-surface-container border border-outline-variant/30" /> Belum ada admin</span>
+        </div>
       </div>
 
       {/* Prodi Integration Insight */}
@@ -75,15 +267,15 @@ export default function SuperadminDashboard() {
           </div>
           <Link
             href="/superadmin/admins"
-            className="font-label text-sm font-semibold text-primary hover:underline inline-flex items-center gap-1"
+            className="font-label text-sm font-semibold text-primary hover:opacity-80 transition-opacity inline-flex items-center gap-1"
           >
             Kelola Admin <Icon name="arrow_forward" size={16} />
           </Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {prodiIntegrationStatus.map((p) => {
+          {prodis.map((p) => {
             const style = statusStyles[p.status];
-            const adminCount = initialAdminAccounts.filter((a) => a.prodi === p.name).length;
+            const adminCount = admins.filter((a) => a.prodi === p.name).length;
             return (
               <div
                 key={p.name}
@@ -123,7 +315,7 @@ export default function SuperadminDashboard() {
           </Link>
         </div>
         <div className="space-y-3">
-          {initialAdminAccounts.slice(0, 5).map((a) => (
+          {admins.slice(0, 5).map((a) => (
             <div key={a.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-surface-container-low transition-colors">
               <div className="w-10 h-10 bg-primary-fixed rounded-full flex items-center justify-center shrink-0">
                 <Icon name="person" className="text-primary" size={18} />

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import {
@@ -10,13 +10,162 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  initialAdminAccounts,
-  prodiIntegrationStatus,
-  type AdminAccount,
-} from "@/lib/admin-mock";
+import { type AdminAccount } from "@/lib/admin-mock";
+import { useSuperadminData } from "@/app/superadmin/SuperadminDataProvider";
 
-const prodiOptions = prodiIntegrationStatus.map((p) => p.name);
+interface ProdiComboboxProps {
+  value: string;
+  options: string[];
+  onSelect: (name: string) => void;
+  onCreate: (name: string) => string | null;
+  placeholder?: string;
+}
+
+function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: ProdiComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const q = query.trim();
+  const filtered = q
+    ? options.filter((o) => o.toLowerCase().includes(q.toLowerCase()))
+    : options;
+  const exactMatch = options.some((o) => o.toLowerCase() === q.toLowerCase());
+  const canCreate = q.length > 0 && !exactMatch;
+  const totalItems = filtered.length + (canCreate ? 1 : 0);
+
+  useEffect(() => {
+    if (highlight >= totalItems) setHighlight(Math.max(0, totalItems - 1));
+  }, [highlight, totalItems]);
+
+  const commitSelect = (name: string) => {
+    onSelect(name);
+    setOpen(false);
+    setQuery("");
+    setHighlight(0);
+  };
+
+  const commitCreate = () => {
+    if (!canCreate) return;
+    const created = onCreate(q);
+    if (created) commitSelect(created);
+  };
+
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlight((h) => Math.min(totalItems - 1, h + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight((h) => Math.max(0, h - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (highlight < filtered.length) {
+        commitSelect(filtered[highlight]);
+      } else if (canCreate) {
+        commitCreate();
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      setQuery("");
+    }
+  };
+
+  const displayValue = open ? query : value;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div
+        className={`flex items-center h-12 w-full rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] ${open ? "ring-2 ring-primary/40 border-ring" : ""}`}
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          value={displayValue}
+          placeholder={placeholder ?? "Pilih atau ketik prodi"}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            setHighlight(0);
+          }}
+          onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
+          onKeyDown={handleKey}
+          className="flex-1 bg-transparent px-3 py-2 outline-none font-body text-sm text-on-background placeholder:text-outline min-w-0"
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => {
+            setOpen((o) => !o);
+            inputRef.current?.focus();
+          }}
+          className="px-2 text-on-surface-variant"
+          aria-label="Buka daftar prodi"
+        >
+          <Icon name={open ? "expand_less" : "expand_more"} size={20} />
+        </button>
+      </div>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-surface-container-lowest border border-outline-variant/40 rounded-md shadow-lg max-h-60 overflow-y-auto">
+          {filtered.length === 0 && !canCreate && (
+            <p className="px-3 py-3 font-body text-sm text-on-surface-variant text-center">
+              Tidak ada hasil.
+            </p>
+          )}
+          {filtered.map((opt, idx) => {
+            const isHi = idx === highlight;
+            const isSel = opt === value;
+            const cls = isSel
+              ? "bg-primary-fixed-dim text-primary font-semibold"
+              : isHi
+                ? "bg-surface-container text-on-background"
+                : "text-on-background";
+            return (
+              <button
+                key={opt}
+                type="button"
+                onMouseEnter={() => setHighlight(idx)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => commitSelect(opt)}
+                className={`w-full px-3 py-2 font-body text-sm text-left ${cls}`}
+              >
+                {opt}
+              </button>
+            );
+          })}
+          {canCreate && (
+            <button
+              type="button"
+              onMouseEnter={() => setHighlight(filtered.length)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={commitCreate}
+              className={`w-full text-left px-3 py-2 font-body text-sm flex items-center gap-2 border-t border-outline-variant/30 ${highlight === filtered.length ? "bg-primary/10" : ""} text-primary font-semibold`}
+            >
+              <Icon name="add" size={16} />
+              <span className="truncate">Tambah prodi baru: &ldquo;{q}&rdquo;</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface AdminForm {
   name: string;
@@ -33,14 +182,27 @@ function todayISO() {
 }
 
 export default function ManageAdminsPage() {
+  const { admins: adminList, setAdmins: persist, prodis: prodiList, addProdi } = useSuperadminData();
+
   const [search, setSearch] = useState("");
   const [prodiFilter, setProdiFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [adminList, setAdminList] = useState<AdminAccount[]>(initialAdminAccounts);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<AdminForm>(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<AdminAccount | null>(null);
+
+  const prodiOptions = prodiList.map((p) => p.name);
+
+  const handleCreateProdi = (name: string): string | null => {
+    const entry = addProdi(name);
+    return entry ? entry.name : null;
+  };
+
+  const prodiTanpaAdmin = useMemo(
+    () => prodiList.filter((p) => !adminList.some((a) => a.prodi === p.name)),
+    [prodiList, adminList],
+  );
 
   const filtered = adminList.filter((a) => {
     const matchSearch =
@@ -51,9 +213,9 @@ export default function ManageAdminsPage() {
     return matchSearch && matchProdi && matchStatus;
   });
 
-  const openAdd = () => {
+  const openAdd = (presetProdi?: string) => {
     setEditingId(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, prodi: presetProdi ?? "" });
     setShowModal(true);
   };
 
@@ -81,13 +243,13 @@ export default function ManageAdminsPage() {
     if (!editingId && !form.password) return;
 
     if (editingId) {
-      setAdminList(adminList.map((a) =>
+      persist(adminList.map((a) =>
         a.id === editingId
           ? { ...a, name: form.name, email: form.email, prodi: form.prodi, status: form.status }
           : a
       ));
     } else {
-      setAdminList([...adminList, {
+      persist([...adminList, {
         id: Math.max(0, ...adminList.map((a) => a.id)) + 1,
         name: form.name,
         email: form.email,
@@ -102,7 +264,7 @@ export default function ManageAdminsPage() {
 
   const handleDelete = () => {
     if (!deleteTarget) return;
-    setAdminList(adminList.filter((a) => a.id !== deleteTarget.id));
+    persist(adminList.filter((a) => a.id !== deleteTarget.id));
     setDeleteTarget(null);
   };
 
@@ -161,16 +323,16 @@ export default function ManageAdminsPage() {
                   <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
                     Prodi <span className="text-error">*</span>
                   </label>
-                  <Select value={form.prodi || undefined} onValueChange={(v) => setForm({ ...form, prodi: v })}>
-                    <SelectTrigger className="h-12 w-full">
-                      <SelectValue placeholder="Pilih Prodi" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {prodiOptions.map((p) => (
-                        <SelectItem key={p} value={p}>{p}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <ProdiCombobox
+                    value={form.prodi}
+                    options={prodiOptions}
+                    onSelect={(v) => setForm({ ...form, prodi: v })}
+                    onCreate={handleCreateProdi}
+                    placeholder="Pilih atau ketik prodi"
+                  />
+                  <p className="font-label text-[11px] text-on-surface-variant mt-1 leading-snug">
+                    Ketik untuk mencari. Jika prodi belum ada, opsi tambah akan muncul.
+                  </p>
                 </div>
                 <div>
                   <label className="font-label text-sm text-on-surface-variant mb-1.5 block">Status</label>
@@ -237,10 +399,39 @@ export default function ManageAdminsPage() {
               Provisi akun admin untuk setiap prodi. Admin tidak melakukan registrasi mandiri.
             </p>
           </div>
-          <button onClick={openAdd} className="btn-gradient font-label font-bold rounded-xl px-6 py-3 flex items-center gap-2 w-fit shadow-[0_4px_14px_rgb(9,76,178,0.25)]">
+          <button onClick={() => openAdd()} className="btn-gradient font-label font-bold rounded-xl px-6 py-3 flex items-center gap-2 w-fit shadow-[0_4px_14px_rgb(9,76,178,0.25)]">
             <Icon name="person_add" size={20} />Tambah Admin
           </button>
         </div>
+
+        {prodiTanpaAdmin.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-start gap-3">
+            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
+              <Icon name="warning" className="text-amber-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-label text-sm font-bold text-amber-900">
+                {prodiTanpaAdmin.length} prodi belum punya admin
+              </p>
+              <p className="font-label text-xs text-amber-800 mt-0.5 mb-2">
+                Mahasiswa di prodi berikut belum bisa dilayani sebelum admin dibuat.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {prodiTanpaAdmin.map((p) => (
+                  <button
+                    key={p.name}
+                    type="button"
+                    onClick={() => openAdd(p.name)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-amber-200 rounded-full font-label text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
+                  >
+                    <Icon name="add" size={12} />
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
@@ -254,7 +445,7 @@ export default function ManageAdminsPage() {
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
             <p className="font-label text-sm text-on-surface-variant">Prodi Tercakup</p>
             <p className="font-headline text-2xl font-bold text-primary">
-              {new Set(adminList.map((a) => a.prodi)).size}
+              {new Set(adminList.map((a) => a.prodi)).size}<span className="font-body text-sm text-on-surface-variant font-medium">/{prodiList.length}</span>
             </p>
           </div>
         </div>

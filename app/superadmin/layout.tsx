@@ -5,6 +5,7 @@ import Sidebar from "@/components/layout/Sidebar";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import React from "react";
+import { SuperadminDataProvider } from "./SuperadminDataProvider";
 
 const superadminNav: NavItem[] = [
   { label: "Dashboard", icon: "dashboard", href: "/superadmin/dashboard" },
@@ -35,7 +36,9 @@ export default function SuperadminLayout({
 }) {
   return (
     <SidebarProvider>
-      <SuperadminLayoutInner>{children}</SuperadminLayoutInner>
+      <SuperadminDataProvider>
+        <SuperadminLayoutInner>{children}</SuperadminLayoutInner>
+      </SuperadminDataProvider>
     </SidebarProvider>
   );
 }
