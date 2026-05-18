@@ -1,62 +1,73 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import Icon from "@/components/ui/Icon";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import {
-  adminProfile,
-  getMataKuliahByKode,
-  initialCLOs,
-  type CLOItem,
-} from "@/lib/admin-mock";
+  createCLO,
+  deleteCLO,
+  getCLOsByMatkul,
+  getMatkulByKode,
+  updateCLO,
+  type CLO,
+  type Matkul,
+} from "@/lib/supabase/admin-queries";
 
 interface CLOForm {
-  id: string;
-  deskripsi: string;
+  clo_code: string;
+  clo_text: string;
 }
 
-const emptyForm: CLOForm = { id: "", deskripsi: "" };
+const emptyForm: CLOForm = { clo_code: "", clo_text: "" };
 
 export default function MataKuliahCLOPage() {
   const params = useParams<{ kodeMK: string }>();
-  const mk = getMataKuliahByKode(params.kodeMK);
 
-  const initialForMK = useMemo(
-    () => (mk ? initialCLOs.filter((c) => c.mataKuliah === mk.nama) : []),
-    [mk]
-  );
+  const [mk, setMk] = useState<Matkul | null>(null);
+  const [cloList, setCloList] = useState<CLO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
-  const [cloList, setCloList] = useState<CLOItem[]>(initialForMK);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<CLOForm>(emptyForm);
-  const [deleteTarget, setDeleteTarget] = useState<CLOItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CLO | null>(null);
 
-  if (!mk) {
-    return (
-      <div className="max-w-3xl mx-auto py-10 text-center">
-        <Icon name="search_off" size={48} className="text-on-surface-variant mx-auto mb-4" />
-        <h1 className="font-headline text-2xl font-bold text-on-background mb-2">Mata Kuliah tidak ditemukan</h1>
-        <p className="font-body text-on-surface-variant mb-6">Kode {params.kodeMK?.toUpperCase()} tidak terdaftar.</p>
-        <Link href="/admin/clo" className="btn-gradient font-label font-bold rounded-xl px-6 py-3 inline-flex items-center gap-2">
-          <Icon name="arrow_back" size={18} /> Kembali ke Daftar Mata Kuliah
-        </Link>
-      </div>
-    );
-  }
+  useEffect(() => {
+    let cancelled = false;
+    getMatkulByKode(params.kodeMK)
+      .then((matkulData) => {
+        if (cancelled) return;
+        if (!matkulData) { setNotFound(true); setLoading(false); return; }
+        setMk(matkulData);
+        return getCLOsByMatkul(matkulData.id);
+      })
+      .then((clos) => {
+        if (cancelled || !clos) return;
+        setCloList(clos);
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (!cancelled) { setError((e as Error).message); setLoading(false); }
+      });
+    return () => { cancelled = true; };
+  }, [params.kodeMK]);
 
   const filtered = cloList.filter(
     (c) =>
-      c.id.toLowerCase().includes(search.toLowerCase()) ||
-      c.deskripsi.toLowerCase().includes(search.toLowerCase())
+      (c.clo_code ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      c.clo_text.toLowerCase().includes(search.toLowerCase()),
   );
 
-  const nextCloKode = useMemo(() => {
+  const nextCloCode = useMemo(() => {
+    if (!mk) return "";
     const nums = cloList
-      .map((c) => parseInt(c.id.split("-").pop() ?? "0"))
+      .map((c) => parseInt((c.clo_code ?? "").split("-").pop() ?? "0"))
       .filter((n) => !Number.isNaN(n));
     const next = (nums.length ? Math.max(...nums) : 0) + 1;
     return `${mk.kode}-CLO-${String(next).padStart(2, "0")}`;
@@ -64,13 +75,13 @@ export default function MataKuliahCLOPage() {
 
   const openAdd = () => {
     setEditingId(null);
-    setForm({ ...emptyForm, id: nextCloKode });
+    setForm({ clo_code: nextCloCode, clo_text: "" });
     setShowModal(true);
   };
 
-  const openEdit = (c: CLOItem) => {
+  const openEdit = (c: CLO) => {
     setEditingId(c.id);
-    setForm({ id: c.id, deskripsi: c.deskripsi });
+    setForm({ clo_code: c.clo_code ?? "", clo_text: c.clo_text });
     setShowModal(true);
   };
 
@@ -78,44 +89,102 @@ export default function MataKuliahCLOPage() {
     setShowModal(false);
     setEditingId(null);
     setForm(emptyForm);
+    setError(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.id || !form.deskripsi) return;
-
-    const next: CLOItem = {
-      id: form.id,
-      deskripsi: form.deskripsi,
-      mataKuliah: mk.nama,
-    };
-
-    if (editingId) {
-      setCloList(cloList.map((c) => (c.id === editingId ? next : c)));
-    } else {
-      setCloList([...cloList, next]);
+    if (!mk || !form.clo_code || !form.clo_text) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (editingId) {
+        const updated = await updateCLO(editingId, {
+          clo_code: form.clo_code,
+          clo_text: form.clo_text,
+        });
+        setCloList((list) => list.map((c) => (c.id === editingId ? updated : c)));
+      } else {
+        const created = await createCLO({
+          matkul_id: mk.id,
+          clo_code: form.clo_code,
+          clo_text: form.clo_text,
+        });
+        setCloList((list) => [...list, created]);
+      }
+      closeModal();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
-    closeModal();
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
-    setCloList(cloList.filter((c) => c.id !== deleteTarget.id));
-    setDeleteTarget(null);
+    setSaving(true);
+    try {
+      await deleteCLO(deleteTarget.id);
+      setCloList((list) => list.filter((c) => c.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const inputCls = "w-full bg-surface-container-low rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm text-on-background placeholder:text-outline border border-outline-variant/30";
+  const inputCls =
+    "w-full bg-surface-container-low rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm text-on-background placeholder:text-outline border border-outline-variant/30";
+
+  if (loading) {
+    return (
+      <div className="max-w-6xl mx-auto py-10 text-center font-body text-sm text-on-surface-variant">
+        Memuat data...
+      </div>
+    );
+  }
+
+  if (notFound || !mk) {
+    return (
+      <div className="max-w-3xl mx-auto py-10 text-center">
+        <Icon name="search_off" size={48} className="text-on-surface-variant mx-auto mb-4" />
+        <h1 className="font-headline text-2xl font-bold text-on-background mb-2">
+          Mata Kuliah tidak ditemukan
+        </h1>
+        <p className="font-body text-on-surface-variant mb-6">
+          Kode {params.kodeMK?.toUpperCase()} tidak terdaftar.
+        </p>
+        <Link
+          href="/admin/clo"
+          className="btn-gradient font-label font-bold rounded-xl px-6 py-3 inline-flex items-center gap-2"
+        >
+          <Icon name="arrow_back" size={18} /> Kembali ke Daftar Mata Kuliah
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <>
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={closeModal}>
-          <div className="bg-surface-container-lowest rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={closeModal}
+        >
+          <div
+            className="bg-surface-container-lowest rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-headline text-xl font-bold text-on-background">
                 {editingId ? "Edit CLO" : "Tambah CLO"}
               </h2>
-              <button type="button" onClick={closeModal} className="p-2 hover:bg-surface-container rounded-lg transition-colors">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="p-2 hover:bg-surface-container rounded-lg transition-colors"
+              >
                 <Icon name="close" className="text-on-surface-variant" />
               </button>
             </div>
@@ -126,9 +195,17 @@ export default function MataKuliahCLOPage() {
               </div>
               <div className="min-w-0">
                 <p className="font-label text-sm font-bold text-on-background truncate">{mk.nama}</p>
-                <p className="font-label text-xs text-on-surface-variant">{mk.kode} • {mk.sks} SKS • Semester {mk.semester}</p>
+                <p className="font-label text-xs text-on-surface-variant">
+                  {mk.kode} • {mk.sks} SKS • Semester {mk.semester}
+                </p>
               </div>
             </div>
+
+            {error && (
+              <div className="mb-4 px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+                {error}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -138,8 +215,8 @@ export default function MataKuliahCLOPage() {
                 <input
                   required
                   type="text"
-                  value={form.id}
-                  onChange={(e) => setForm({ ...form, id: e.target.value })}
+                  value={form.clo_code}
+                  onChange={(e) => setForm((f) => ({ ...f, clo_code: e.target.value }))}
                   className={inputCls}
                   disabled={!!editingId}
                 />
@@ -152,17 +229,25 @@ export default function MataKuliahCLOPage() {
                   required
                   rows={4}
                   placeholder="Mampu ..."
-                  value={form.deskripsi}
-                  onChange={(e) => setForm({ ...form, deskripsi: e.target.value })}
+                  value={form.clo_text}
+                  onChange={(e) => setForm((f) => ({ ...f, clo_text: e.target.value }))}
                   className={`${inputCls} resize-none`}
                 />
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={closeModal} className="flex-1 py-3 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="flex-1 py-3 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors"
+                >
                   Batal
                 </button>
-                <button type="submit" className="flex-1 btn-gradient font-label font-bold rounded-xl py-3">
-                  {editingId ? "Simpan Perubahan" : "Simpan CLO"}
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 btn-gradient font-label font-bold rounded-xl py-3 disabled:opacity-60"
+                >
+                  {saving ? "Menyimpan..." : editingId ? "Simpan Perubahan" : "Simpan CLO"}
                 </button>
               </div>
             </form>
@@ -175,16 +260,22 @@ export default function MataKuliahCLOPage() {
         title="Hapus CLO?"
         description={
           <>
-            CLO <span className="font-bold text-on-background">{deleteTarget?.id}</span> akan dihapus dari mata kuliah ini.
+            CLO{" "}
+            <span className="font-bold text-on-background">{deleteTarget?.clo_code}</span>{" "}
+            akan dihapus dari mata kuliah ini.
           </>
         }
+        loading={saving}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
 
       <div className="max-w-6xl mx-auto space-y-6">
         <div>
-          <Link href="/admin/clo" className="inline-flex items-center gap-1.5 font-label text-sm text-on-surface-variant hover:text-primary transition-colors">
+          <Link
+            href="/admin/clo"
+            className="inline-flex items-center gap-1.5 font-label text-sm text-on-surface-variant hover:text-primary transition-colors"
+          >
             <Icon name="arrow_back" size={16} /> Kembali ke Daftar Mata Kuliah
           </Link>
         </div>
@@ -197,16 +288,24 @@ export default function MataKuliahCLOPage() {
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <span className="font-label text-xs font-bold text-primary px-2.5 py-1 bg-primary-fixed rounded">{mk.kode}</span>
-                  <span className="font-label text-xs text-on-surface-variant">{mk.sks} SKS • Semester {mk.semester}</span>
+                  <span className="font-label text-xs font-bold text-primary px-2.5 py-1 bg-primary-fixed rounded">
+                    {mk.kode}
+                  </span>
+                  <span className="font-label text-xs text-on-surface-variant">
+                    {mk.sks} SKS • Semester {mk.semester}
+                  </span>
                 </div>
                 <h1 className="font-headline text-2xl font-bold text-on-background mb-1">{mk.nama}</h1>
-                <p className="font-body text-sm text-on-surface-variant">{mk.deskripsi || "Tidak ada deskripsi."}</p>
-                <p className="font-label text-xs text-on-surface-variant mt-2">Prodi {adminProfile.prodi}</p>
+                <p className="font-body text-sm text-on-surface-variant">
+                  {mk.deskripsi || "Tidak ada deskripsi."}
+                </p>
               </div>
             </div>
             <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0">
-              <button onClick={openAdd} className="btn-gradient font-label font-bold rounded-xl px-6 py-3 flex items-center gap-2 w-fit shadow-[0_4px_14px_rgb(9,76,178,0.25)]">
+              <button
+                onClick={openAdd}
+                className="btn-gradient font-label font-bold rounded-xl px-6 py-3 flex items-center gap-2 w-fit shadow-[0_4px_14px_rgb(9,76,178,0.25)]"
+              >
                 <Icon name="add" size={20} />Tambah CLO
               </button>
               <Link
@@ -219,12 +318,15 @@ export default function MataKuliahCLOPage() {
               </Link>
             </div>
           </div>
-
           <div className="mt-6 pt-6 border-t border-outline-variant/20">
             <p className="font-label text-xs uppercase tracking-wider text-on-surface-variant">Total CLO</p>
             <p className="font-headline text-3xl font-bold text-primary mt-1">{cloList.length}</p>
           </div>
         </div>
+
+        {error && !showModal && (
+          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">{error}</div>
+        )}
 
         <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border">
           <div className="relative">
@@ -242,7 +344,11 @@ export default function MataKuliahCLOPage() {
         <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
           {filtered.length === 0 ? (
             <div className="p-10 text-center">
-              <Icon name={cloList.length === 0 ? "school" : "search_off"} size={40} className="text-on-surface-variant mx-auto mb-3" />
+              <Icon
+                name={cloList.length === 0 ? "school" : "search_off"}
+                size={40}
+                className="text-on-surface-variant mx-auto mb-3"
+              />
               <h3 className="font-headline text-lg font-bold text-on-background mb-2">
                 {cloList.length === 0 ? "Belum ada CLO" : "Tidak ada hasil"}
               </h3>
@@ -252,7 +358,10 @@ export default function MataKuliahCLOPage() {
                   : "Tidak ada CLO yang cocok dengan pencarian."}
               </p>
               {cloList.length === 0 && (
-                <button onClick={openAdd} className="btn-gradient font-label font-bold rounded-xl px-6 py-3 inline-flex items-center gap-2">
+                <button
+                  onClick={openAdd}
+                  className="btn-gradient font-label font-bold rounded-xl px-6 py-3 inline-flex items-center gap-2"
+                >
                   <Icon name="add" size={18} /> Tambah CLO Pertama
                 </button>
               )}
@@ -263,21 +372,39 @@ export default function MataKuliahCLOPage() {
                 <thead>
                   <tr className="bg-surface-container-low">
                     {["Kode", "Deskripsi CLO", "Aksi"].map((h) => (
-                      <th key={h} className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}>{h}</th>
+                      <th
+                        key={h}
+                        className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}
+                      >
+                        {h}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((c) => (
-                    <tr key={c.id} className="hover:bg-surface-container-low transition-colors border-t border-surface-variant">
-                      <td className="px-6 py-4"><span className="font-label text-sm font-bold text-primary whitespace-nowrap">{c.id}</span></td>
-                      <td className="px-6 py-4 font-body text-sm text-on-background">{c.deskripsi}</td>
+                    <tr
+                      key={c.id}
+                      className="hover:bg-surface-container-low transition-colors border-t border-surface-variant"
+                    >
+                      <td className="px-6 py-4">
+                        <span className="font-label text-sm font-bold text-primary whitespace-nowrap">
+                          {c.clo_code}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-body text-sm text-on-background">{c.clo_text}</td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => openEdit(c)} className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors">
+                          <button
+                            onClick={() => openEdit(c)}
+                            className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors"
+                          >
                             <Icon name="edit" size={18} />
                           </button>
-                          <button onClick={() => setDeleteTarget(c)} className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors">
+                          <button
+                            onClick={() => setDeleteTarget(c)}
+                            className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors"
+                          >
                             <Icon name="delete" size={18} />
                           </button>
                         </div>

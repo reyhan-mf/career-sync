@@ -1,5 +1,6 @@
 "use client";
 
+import AuthGate from "@/components/auth/AuthGate";
 import type { NavItem } from "@/components/layout/Sidebar";
 import Sidebar from "@/components/layout/Sidebar";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
@@ -38,8 +39,10 @@ export default function StudentLayout({
   children: React.ReactNode;
 }) {
   return (
-    <SidebarProvider>
-      <StudentLayoutInner>{children}</StudentLayoutInner>
-    </SidebarProvider>
+    <AuthGate role="student">
+      <SidebarProvider>
+        <StudentLayoutInner>{children}</StudentLayoutInner>
+      </SidebarProvider>
+    </AuthGate>
   );
 }

@@ -1,30 +1,95 @@
 "use client";
 
 import Icon from "@/components/ui/Icon";
+import { signIn } from "@/lib/supabase/auth";
+import { registerHr } from "@/lib/supabase/hr-register";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+
+interface FormState {
+  firstName: string;
+  lastName: string;
+  email: string;
+  jobTitle: string;
+  password: string;
+  companyName: string;
+  industry: string;
+  website: string;
+}
+
+const emptyForm: FormState = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  jobTitle: "",
+  password: "",
+  companyName: "",
+  industry: "",
+  website: "",
+};
+
+// Accept either bare domain (tokopedia.com) or full URL. Returns normalized
+// https URL, or null if input is empty / clearly invalid.
+function normalizeWebsite(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const u = new URL(withProtocol);
+    if (!u.hostname.includes(".")) return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
 
 export default function RegisterPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [form, setForm] = useState<FormState>(emptyForm);
+  const [error, setError] = useState<string | null>(null);
 
-  // Form State
-  const [step, setStep] = useState(1);
+  const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setStep(2);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
+    const website = form.website.trim() ? normalizeWebsite(form.website) : null;
+    if (form.website.trim() && !website) {
+      setError("Format website tidak valid. Contoh: tokopedia.com");
+      return;
+    }
+
     setIsLoading(true);
-    // Simulasi API Call
-    setTimeout(() => {
-      router.push("/hr/dashboard");
-    }, 1500);
+    try {
+      await registerHr({
+        email: form.email.trim(),
+        password: form.password,
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        jobTitle: form.jobTitle.trim(),
+        companyName: form.companyName.trim(),
+        industry: form.industry || null,
+        website,
+      });
+      // Sign in so AuthGate sees a session.
+      await signIn(form.email.trim(), form.password);
+      router.replace("/hr/dashboard");
+    } catch (err) {
+      setError((err as Error).message);
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -96,38 +161,51 @@ export default function RegisterPage() {
             </div>
           </div>
 
+          {error && (
+            <div className="mb-4 px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+              {error}
+            </div>
+          )}
+
           {step === 1 ? (
-            <form
-              className="space-y-5 flex flex-col gap-1"
-              onSubmit={handleNext}
-            >
+            <form className="space-y-5 flex flex-col gap-1" onSubmit={handleNext}>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="block font-label text-sm text-on-background">
+                  <label className="block font-label text-sm text-on-background" htmlFor="firstName">
                     First Name
                   </label>
                   <input
+                    id="firstName"
+                    name="given-name"
                     required
+                    autoComplete="given-name"
                     className="w-full bg-surface border border-outline-variant text-on-background rounded-lg px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-body"
                     placeholder="John"
                     type="text"
+                    value={form.firstName}
+                    onChange={(e) => update("firstName", e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="block font-label text-sm text-on-background">
+                  <label className="block font-label text-sm text-on-background" htmlFor="lastName">
                     Last Name
                   </label>
                   <input
+                    id="lastName"
+                    name="family-name"
                     required
+                    autoComplete="family-name"
                     className="w-full bg-surface border border-outline-variant text-on-background rounded-lg px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-body"
                     placeholder="Doe"
                     type="text"
+                    value={form.lastName}
+                    onChange={(e) => update("lastName", e.target.value)}
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="block font-label text-sm text-on-background">
+                <label className="block font-label text-sm text-on-background" htmlFor="email">
                   Work Email
                 </label>
                 <div className="relative">
@@ -136,28 +214,38 @@ export default function RegisterPage() {
                     className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant"
                   />
                   <input
+                    id="email"
+                    name="email"
                     required
+                    autoComplete="email"
                     className="w-full bg-surface border border-outline-variant text-on-background rounded-lg pl-12 pr-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-body"
                     placeholder="name@company.com"
                     type="email"
+                    value={form.email}
+                    onChange={(e) => update("email", e.target.value)}
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="block font-label text-sm text-on-background">
+                <label className="block font-label text-sm text-on-background" htmlFor="jobTitle">
                   Job Title
                 </label>
                 <input
+                  id="jobTitle"
+                  name="job-title"
                   required
+                  autoComplete="organization-title"
                   className="w-full bg-surface border border-outline-variant text-on-background rounded-lg px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-body"
                   placeholder="e.g. Technical Recruiter"
                   type="text"
+                  value={form.jobTitle}
+                  onChange={(e) => update("jobTitle", e.target.value)}
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="block font-label text-sm text-on-background">
+                <label className="block font-label text-sm text-on-background" htmlFor="password">
                   Password
                 </label>
                 <div className="relative">
@@ -166,10 +254,16 @@ export default function RegisterPage() {
                     className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant"
                   />
                   <input
+                    id="password"
+                    name="new-password"
                     required
+                    minLength={8}
+                    autoComplete="new-password"
                     className="w-full bg-surface border border-outline-variant text-on-background rounded-lg pl-12 pr-12 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-body"
                     placeholder="••••••••"
                     type={showPassword ? "text" : "password"}
+                    value={form.password}
+                    onChange={(e) => update("password", e.target.value)}
                   />
                   <button
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-background"
@@ -194,9 +288,10 @@ export default function RegisterPage() {
             <form
               className="space-y-5 flex flex-col gap-1"
               onSubmit={handleSubmit}
+              autoComplete="off"
             >
               <div className="space-y-2">
-                <label className="block font-label text-sm text-on-background">
+                <label className="block font-label text-sm text-on-background" htmlFor="companyName">
                   Company Name
                 </label>
                 <div className="relative">
@@ -205,24 +300,33 @@ export default function RegisterPage() {
                     className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant"
                   />
                   <input
+                    id="companyName"
+                    name="company-name"
                     required
+                    autoComplete="organization"
                     className="w-full bg-surface border border-outline-variant text-on-background rounded-lg pl-12 pr-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-body"
                     placeholder="PT. Inovasi Teknologi"
                     type="text"
+                    value={form.companyName}
+                    onChange={(e) => update("companyName", e.target.value)}
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="block font-label text-sm text-on-background">
+                <label className="block font-label text-sm text-on-background" htmlFor="industry">
                   Industry Area
                 </label>
                 <div className="relative">
                   <select
+                    id="industry"
                     required
+                    autoComplete="off"
+                    value={form.industry}
+                    onChange={(e) => update("industry", e.target.value)}
                     className="w-full appearance-none bg-surface border border-outline-variant text-on-background rounded-lg px-4 py-3 pr-10 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-body"
                   >
-                    <option value="" disabled selected>
+                    <option value="" disabled>
                       Select an industry...
                     </option>
                     <option value="tech">Technology & Software</option>
@@ -239,7 +343,7 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block font-label text-sm text-on-background">
+                <label className="block font-label text-sm text-on-background" htmlFor="website">
                   Company Website
                 </label>
                 <div className="relative">
@@ -248,12 +352,19 @@ export default function RegisterPage() {
                     className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant"
                   />
                   <input
-                    required
+                    id="website"
+                    name="company-website"
+                    autoComplete="url"
                     className="w-full bg-surface border border-outline-variant text-on-background rounded-lg pl-12 pr-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-body"
-                    placeholder="https://www.company.com"
-                    type="url"
+                    placeholder="tokopedia.com"
+                    type="text"
+                    value={form.website}
+                    onChange={(e) => update("website", e.target.value)}
                   />
                 </div>
+                <p className="font-label text-[11px] text-on-surface-variant leading-snug">
+                  Boleh tanpa http:// — contoh: tokopedia.com
+                </p>
               </div>
 
               <div className="flex gap-3 mt-4">

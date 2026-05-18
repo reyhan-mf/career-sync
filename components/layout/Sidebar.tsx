@@ -1,5 +1,6 @@
 "use client";
 
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Icon from "@/components/ui/Icon";
 import {
   Sheet,
@@ -13,8 +14,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { signOut } from "@/lib/supabase/auth";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { memo, useEffect, useRef, useState } from "react";
 
 export interface NavItem {
@@ -177,18 +179,21 @@ const NavLink = memo(function NavLink({
   return linkContent;
 });
 
-/* ─── Sign Out link ─── */
-const SignOutLink = memo(function SignOutLink({
+/* ─── Sign Out button ─── */
+const SignOutButton = memo(function SignOutButton({
   expanded,
   showTooltip = false,
+  onClick,
 }: {
   expanded: boolean;
   showTooltip?: boolean;
+  onClick: () => void;
 }) {
-  const linkContent = (
-    <Link
-      href="/login"
-      className="flex items-center rounded-xl font-label text-sm px-3 py-2.5 transition-colors duration-200 group
+  const buttonContent = (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center rounded-xl font-label text-sm px-3 py-2.5 transition-colors duration-200 group
         text-on-surface-variant hover:bg-error-container hover:text-on-error-container"
     >
       <div className="flex items-center justify-center w-6 h-6 shrink-0 transition-transform duration-200 group-hover:scale-110 text-error">
@@ -201,13 +206,13 @@ const SignOutLink = memo(function SignOutLink({
       >
         Sign Out
       </span>
-    </Link>
+    </button>
   );
 
   if (showTooltip && !expanded) {
     return (
       <Tooltip>
-        <TooltipTrigger render={<div />}>{linkContent}</TooltipTrigger>
+        <TooltipTrigger render={<div />}>{buttonContent}</TooltipTrigger>
         <TooltipContent side="right" sideOffset={8}>
           Sign Out
         </TooltipContent>
@@ -215,15 +220,34 @@ const SignOutLink = memo(function SignOutLink({
     );
   }
 
-  return linkContent;
+  return buttonContent;
 });
 
 export default function Sidebar({ items, bottomItems, role }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const prevPathname = useRef(pathname);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+    } catch {
+      // ignore — still send the user back to login
+    }
+    router.replace("/login");
+  };
+
+  const openSignOutConfirm = () => {
+    setMobileOpen(false);
+    setShowSignOutConfirm(true);
+  };
 
   useEffect(() => {
     if (prevPathname.current !== pathname) {
@@ -299,7 +323,7 @@ export default function Sidebar({ items, bottomItems, role }: SidebarProps) {
               {bottomItems?.map((item) => (
                 <NavLink key={item.href} item={item} expanded role={role} />
               ))}
-              <SignOutLink expanded />
+              <SignOutButton expanded onClick={openSignOutConfirm} />
             </div>
           </div>
         </SheetContent>
@@ -341,9 +365,25 @@ export default function Sidebar({ items, bottomItems, role }: SidebarProps) {
               role={role}
             />
           ))}
-          <SignOutLink expanded={hovered} showTooltip={!hovered} />
+          <SignOutButton
+            expanded={hovered}
+            showTooltip={!hovered}
+            onClick={openSignOutConfirm}
+          />
         </div>
       </nav>
+
+      <ConfirmDialog
+        open={showSignOutConfirm}
+        title="Keluar dari akun?"
+        description="Anda akan dialihkan ke halaman login. Pastikan pekerjaan Anda sudah tersimpan."
+        confirmLabel="Ya, Keluar"
+        cancelLabel="Batal"
+        variant="danger"
+        loading={signingOut}
+        onConfirm={handleSignOut}
+        onCancel={() => setShowSignOutConfirm(false)}
+      />
     </TooltipProvider>
   );
 }

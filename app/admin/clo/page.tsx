@@ -10,14 +10,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  adminProfile,
-  initialCLOs,
-  initialMataKuliah,
-  sksOptions,
-  type MataKuliahItem,
-} from "@/lib/admin-mock";
+  createMatkul,
+  deleteMatkul,
+  getAllCLOs,
+  getMatkul,
+  updateMatkul,
+  type Matkul,
+} from "@/lib/supabase/admin-queries";
+import { useAdminProdi } from "@/lib/supabase/useAdminProdi";
 import Link from "next/link";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+
+const sksOptions = ["1", "2", "3", "4", "5", "6"];
+const semesterOptions = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
 interface MKForm {
   kode: string;
@@ -27,28 +32,52 @@ interface MKForm {
   deskripsi: string;
 }
 
-const emptyForm: MKForm = {
-  kode: "",
-  nama: "",
-  sks: "",
-  semester: "",
-  deskripsi: "",
-};
-
-const semesterOptions = ["1", "2", "3", "4", "5", "6", "7", "8"];
+const emptyForm: MKForm = { kode: "", nama: "", sks: "", semester: "", deskripsi: "" };
 
 export default function AdminCLOPage() {
+  const { data: adminCtx, loading: ctxLoading, error: ctxError } = useAdminProdi();
   const [search, setSearch] = useState("");
   const [semesterFilter, setSemesterFilter] = useState("all");
   const [cloStatusFilter, setCloStatusFilter] = useState("all");
-  const [mkList, setMkList] = useState<MataKuliahItem[]>(initialMataKuliah);
+  const [mkList, setMkList] = useState<Matkul[]>([]);
+  const [cloCountMap, setCloCountMap] = useState<Record<string, number>>({});
+  const [mkLoading, setMkLoading] = useState(true);
+  const [mkError, setMkError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [editingKode, setEditingKode] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<MKForm>(emptyForm);
-  const [deleteTarget, setDeleteTarget] = useState<MataKuliahItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Matkul | null>(null);
 
-  const cloCountByMK = (nama: string) =>
-    initialCLOs.filter((c) => c.mataKuliah === nama).length;
+  const loading = ctxLoading || mkLoading;
+  const error = formError ?? mkError ?? ctxError;
+  const setError = setFormError;
+
+  useEffect(() => {
+    if (!adminCtx) return;
+    let cancelled = false;
+    Promise.all([getMatkul(adminCtx.prodi_id), getAllCLOs()])
+      .then(([matkuls, clos]) => {
+        if (cancelled) return;
+        const matkulIds = new Set(matkuls.map((m) => m.id));
+        const countMap: Record<string, number> = {};
+        clos.forEach((c) => {
+          if (matkulIds.has(c.matkul_id)) {
+            countMap[c.matkul_id] = (countMap[c.matkul_id] ?? 0) + 1;
+          }
+        });
+        setMkList(matkuls);
+        setCloCountMap(countMap);
+        setMkLoading(false);
+      })
+      .catch((e) => {
+        if (!cancelled) { setMkError((e as Error).message); setMkLoading(false); }
+      });
+    return () => { cancelled = true; };
+  }, [adminCtx]);
+
+  const totalCLO = Object.values(cloCountMap).reduce((a, b) => a + b, 0);
 
   const filteredMK = mkList.filter((mk) => {
     const matchSearch =
@@ -56,7 +85,7 @@ export default function AdminCLOPage() {
       mk.kode.toLowerCase().includes(search.toLowerCase());
     const matchSemester =
       semesterFilter === "all" || String(mk.semester) === semesterFilter;
-    const hasCLO = cloCountByMK(mk.nama) > 0;
+    const hasCLO = (cloCountMap[mk.id] ?? 0) > 0;
     const matchCloStatus =
       cloStatusFilter === "all" ||
       (cloStatusFilter === "with" && hasCLO) ||
@@ -64,8 +93,7 @@ export default function AdminCLOPage() {
     return matchSearch && matchSemester && matchCloStatus;
   });
 
-  const hasActiveFilter =
-    semesterFilter !== "all" || cloStatusFilter !== "all" || search !== "";
+  const hasActiveFilter = semesterFilter !== "all" || cloStatusFilter !== "all" || search !== "";
 
   const resetFilters = () => {
     setSearch("");
@@ -73,58 +101,81 @@ export default function AdminCLOPage() {
     setCloStatusFilter("all");
   };
 
-  const totalCLO = initialCLOs.length;
-
   const openAdd = () => {
-    setEditingKode(null);
+    setEditingId(null);
     setForm(emptyForm);
     setShowModal(true);
   };
 
-  const openEdit = (mk: MataKuliahItem) => {
-    setEditingKode(mk.kode);
+  const openEdit = (mk: Matkul) => {
+    setEditingId(mk.id);
     setForm({
       kode: mk.kode,
       nama: mk.nama,
-      sks: String(mk.sks),
-      semester: String(mk.semester),
-      deskripsi: mk.deskripsi,
+      sks: String(mk.sks ?? ""),
+      semester: String(mk.semester ?? ""),
+      deskripsi: mk.deskripsi ?? "",
     });
     setShowModal(true);
   };
 
   const closeModal = () => {
     setShowModal(false);
-    setEditingKode(null);
+    setEditingId(null);
     setForm(emptyForm);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.kode || !form.nama || !form.sks || !form.semester) return;
-
-    const next: MataKuliahItem = {
-      kode: form.kode.toUpperCase(),
-      nama: form.nama,
-      sks: parseInt(form.sks),
-      semester: parseInt(form.semester),
-      deskripsi: form.deskripsi,
-    };
-
-    if (editingKode) {
-      setMkList(mkList.map((m) => (m.kode === editingKode ? next : m)));
-    } else {
-      if (mkList.some((m) => m.kode.toLowerCase() === next.kode.toLowerCase()))
+    setSaving(true);
+    setError(null);
+    try {
+      if (!adminCtx) {
+        setError("Akun admin belum ditautkan ke prodi.");
+        setSaving(false);
         return;
-      setMkList([...mkList, next]);
+      }
+      const payload = {
+        kode: form.kode.toUpperCase(),
+        nama: form.nama,
+        sks: parseInt(form.sks),
+        semester: parseInt(form.semester),
+        deskripsi: form.deskripsi || null,
+        prodi_id: adminCtx.prodi_id,
+      };
+      if (editingId) {
+        const updated = await updateMatkul(editingId, payload);
+        setMkList((list) => list.map((m) => (m.id === editingId ? updated : m)));
+      } else {
+        if (mkList.some((m) => m.kode.toLowerCase() === payload.kode.toLowerCase())) {
+          setError("Kode mata kuliah sudah digunakan.");
+          setSaving(false);
+          return;
+        }
+        const created = await createMatkul(payload);
+        setMkList((list) => [...list, created]);
+      }
+      closeModal();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
-    closeModal();
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
-    setMkList(mkList.filter((m) => m.kode !== deleteTarget.kode));
-    setDeleteTarget(null);
+    setSaving(true);
+    try {
+      await deleteMatkul(deleteTarget.id);
+      setMkList((list) => list.filter((m) => m.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inputCls =
@@ -143,7 +194,7 @@ export default function AdminCLOPage() {
           >
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-headline text-xl font-bold text-on-background">
-                {editingKode ? "Edit Mata Kuliah" : "Tambah Mata Kuliah"}
+                {editingId ? "Edit Mata Kuliah" : "Tambah Mata Kuliah"}
               </h2>
               <button
                 type="button"
@@ -154,12 +205,11 @@ export default function AdminCLOPage() {
               </button>
             </div>
 
-            <div className="mb-5 px-4 py-3 bg-primary-fixed rounded-xl flex items-center gap-2">
-              <Icon name="school" size={16} className="text-primary" />
-              <p className="font-label text-sm text-primary font-semibold">
-                Prodi {adminProfile.prodi}
-              </p>
-            </div>
+            {error && (
+              <div className="mb-4 px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+                {error}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
@@ -172,9 +222,9 @@ export default function AdminCLOPage() {
                     type="text"
                     placeholder="PW"
                     value={form.kode}
-                    onChange={(e) => setForm({ ...form, kode: e.target.value })}
+                    onChange={(e) => setForm((f) => ({ ...f, kode: e.target.value }))}
                     className={inputCls}
-                    disabled={!!editingKode}
+                    disabled={!!editingId}
                     maxLength={6}
                   />
                 </div>
@@ -187,7 +237,7 @@ export default function AdminCLOPage() {
                     type="text"
                     placeholder="Contoh: Pemrograman Web"
                     value={form.nama}
-                    onChange={(e) => setForm({ ...form, nama: e.target.value })}
+                    onChange={(e) => setForm((f) => ({ ...f, nama: e.target.value }))}
                     className={inputCls}
                   />
                 </div>
@@ -200,16 +250,14 @@ export default function AdminCLOPage() {
                   </label>
                   <Select
                     value={form.sks || undefined}
-                    onValueChange={(v) => setForm({ ...form, sks: v })}
+                    onValueChange={(v) => setForm((f) => ({ ...f, sks: v }))}
                   >
                     <SelectTrigger className="h-12 w-full">
                       <SelectValue placeholder="Pilih SKS" />
                     </SelectTrigger>
                     <SelectContent>
                       {sksOptions.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s} SKS
-                        </SelectItem>
+                        <SelectItem key={s} value={s}>{s} SKS</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -220,16 +268,14 @@ export default function AdminCLOPage() {
                   </label>
                   <Select
                     value={form.semester || undefined}
-                    onValueChange={(v) => setForm({ ...form, semester: v })}
+                    onValueChange={(v) => setForm((f) => ({ ...f, semester: v }))}
                   >
                     <SelectTrigger className="h-12 w-full">
                       <SelectValue placeholder="Pilih Semester" />
                     </SelectTrigger>
                     <SelectContent>
                       {semesterOptions.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          Semester {s}
-                        </SelectItem>
+                        <SelectItem key={s} value={s}>Semester {s}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -244,9 +290,7 @@ export default function AdminCLOPage() {
                   rows={3}
                   placeholder="Deskripsi singkat mata kuliah..."
                   value={form.deskripsi}
-                  onChange={(e) =>
-                    setForm({ ...form, deskripsi: e.target.value })
-                  }
+                  onChange={(e) => setForm((f) => ({ ...f, deskripsi: e.target.value }))}
                   className={`${inputCls} resize-none`}
                 />
               </div>
@@ -261,9 +305,10 @@ export default function AdminCLOPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 btn-gradient font-label font-bold rounded-xl py-3"
+                  disabled={saving}
+                  className="flex-1 btn-gradient font-label font-bold rounded-xl py-3 disabled:opacity-60"
                 >
-                  {editingKode ? "Simpan Perubahan" : "Tambahkan"}
+                  {saving ? "Menyimpan..." : editingId ? "Simpan Perubahan" : "Tambahkan"}
                 </button>
               </div>
             </form>
@@ -277,27 +322,26 @@ export default function AdminCLOPage() {
         description={
           <>
             Mata kuliah{" "}
-            <span className="font-bold text-on-background">
-              {deleteTarget?.nama}
-            </span>{" "}
-            ({deleteTarget?.kode}) beserta semua CLO terkait akan dihapus.
-            Tindakan ini tidak dapat dibatalkan.
+            <span className="font-bold text-on-background">{deleteTarget?.nama}</span>{" "}
+            ({deleteTarget?.kode}) beserta semua CLO terkait akan dihapus. Tindakan ini
+            tidak dapat dibatalkan.
           </>
         }
+        loading={saving}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
 
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <h1 className="font-headline text-3xl font-bold text-on-background">
               Manajemen Mata Kuliah & CLO
             </h1>
             <p className="font-body text-on-surface-variant">
-              Kelola mata kuliah dan definisi Course Learning Outcomes Prodi{" "}
-              {adminProfile.prodi}.
+              {adminCtx
+                ? `Kelola mata kuliah Prodi ${adminCtx.prodi_name} dan definisi Course Learning Outcomes.`
+                : "Kelola mata kuliah dan definisi Course Learning Outcomes."}
             </p>
           </div>
           <button
@@ -309,41 +353,32 @@ export default function AdminCLOPage() {
           </button>
         </div>
 
-        {/* Stats */}
+        {error && !showModal && (
+          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+            {error}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-            <p className="font-label text-sm text-on-surface-variant">
-              Total Mata Kuliah
-            </p>
-            <p className="font-headline text-2xl font-bold text-on-background">
-              {mkList.length}
-            </p>
+            <p className="font-label text-sm text-on-surface-variant">Total Mata Kuliah</p>
+            <p className="font-headline text-2xl font-bold text-on-background">{mkList.length}</p>
           </div>
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-            <p className="font-label text-sm text-on-surface-variant">
-              Total CLO
-            </p>
-            <p className="font-headline text-2xl font-bold text-primary">
-              {totalCLO}
-            </p>
+            <p className="font-label text-sm text-on-surface-variant">Total CLO</p>
+            <p className="font-headline text-2xl font-bold text-primary">{totalCLO}</p>
           </div>
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-            <p className="font-label text-sm text-on-surface-variant">
-              MK Belum Ada CLO
-            </p>
+            <p className="font-label text-sm text-on-surface-variant">MK Belum Ada CLO</p>
             <p className="font-headline text-2xl font-bold text-on-surface-variant">
-              {mkList.filter((m) => cloCountByMK(m.nama) === 0).length}
+              {mkList.filter((m) => (cloCountMap[m.id] ?? 0) === 0).length}
             </p>
           </div>
         </div>
 
-        {/* Search + Filters */}
         <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border flex flex-col lg:flex-row gap-3">
           <div className="relative flex-1">
-            <Icon
-              name="search"
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant"
-            />
+            <Icon name="search" className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" />
             <input
               type="text"
               placeholder="Cari mata kuliah berdasarkan kode atau nama..."
@@ -360,9 +395,7 @@ export default function AdminCLOPage() {
               <SelectContent>
                 <SelectItem value="all">Semua Semester</SelectItem>
                 {semesterOptions.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    Semester {s}
-                  </SelectItem>
+                  <SelectItem key={s} value={s}>Semester {s}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -380,7 +413,6 @@ export default function AdminCLOPage() {
               <button
                 onClick={resetFilters}
                 className="h-12 px-4 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors inline-flex items-center gap-1.5"
-                title="Reset filter"
               >
                 <Icon name="filter_alt_off" size={16} />
                 Reset
@@ -389,126 +421,112 @@ export default function AdminCLOPage() {
           </div>
         </div>
 
-        {/* Table */}
         <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-surface-container-low">
-                    {[
-                      "Kode",
-                      "Nama Mata Kuliah",
-                      "SKS",
-                      "Semester",
-                      "Jumlah CLO",
-                      "Aksi",
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}
-                      >
-                        {h}
-                      </th>
-                    ))}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-surface-container-low">
+                  {["Kode", "Nama Mata Kuliah", "SKS", "Semester", "Jumlah CLO", "Aksi"].map((h) => (
+                    <th
+                      key={h}
+                      className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
+                      Memuat data...
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filteredMK.map((mk) => {
-                    const cloCount = cloCountByMK(mk.nama);
-                    return (
-                      <tr
-                        key={mk.kode}
-                        className="hover:bg-surface-container-low transition-colors border-t border-surface-variant"
-                      >
-                        <td className="px-6 py-4">
-                          <span className="font-label text-xs font-bold text-primary px-2 py-1 bg-primary-fixed rounded">
-                            {mk.kode}
+                ) : filteredMK.map((mk) => {
+                  const cloCount = cloCountMap[mk.id] ?? 0;
+                  return (
+                    <tr
+                      key={mk.id}
+                      className="hover:bg-surface-container-low transition-colors border-t border-surface-variant"
+                    >
+                      <td className="px-6 py-4">
+                        <span className="font-label text-xs font-bold text-primary px-2 py-1 bg-primary-fixed rounded">
+                          {mk.kode}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-primary-fixed rounded-lg flex items-center justify-center shrink-0">
+                            <Icon name="menu_book" className="text-primary" size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-body text-sm font-medium text-on-background">{mk.nama}</p>
+                            <p className="font-label text-xs text-on-surface-variant line-clamp-1">
+                              {mk.deskripsi || "—"}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
+                        {mk.sks} SKS
+                      </td>
+                      <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
+                        {mk.semester ? `Semester ${mk.semester}` : "—"}
+                      </td>
+                      <td className="px-6 py-4">
+                        {cloCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 font-label text-xs font-semibold text-green-700">
+                            <span className="w-2 h-2 rounded-full bg-green-500" />
+                            {cloCount} CLO
                           </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-primary-fixed rounded-lg flex items-center justify-center shrink-0">
-                              <Icon
-                                name="menu_book"
-                                className="text-primary"
-                                size={16}
-                              />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-body text-sm font-medium text-on-background">
-                                {mk.nama}
-                              </p>
-                              <p className="font-label text-xs text-on-surface-variant line-clamp-1">
-                                {mk.deskripsi || "—"}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
-                          {mk.sks} SKS
-                        </td>
-                        <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
-                          Semester {mk.semester}
-                        </td>
-                        <td className="px-6 py-4">
-                          {cloCount > 0 ? (
-                            <span className="inline-flex items-center gap-1 font-label text-xs font-semibold text-green-700">
-                              <span className="w-2 h-2 rounded-full bg-green-500" />
-                              {cloCount} CLO
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 font-label text-xs text-on-surface-variant">
-                              <span className="w-2 h-2 rounded-full bg-outline" />
-                              Belum ada
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Link
-                              href={`/admin/clo/${mk.kode.toLowerCase()}`}
-                              className="px-3 py-1.5 font-label text-xs font-bold text-primary hover:bg-primary-fixed rounded-lg transition-colors inline-flex items-center gap-1"
-                              title="Kelola CLO"
-                            >
-                              Kelola CLO
-                              <Icon name="arrow_forward" size={14} />
-                            </Link>
-                            <button
-                              onClick={() => openEdit(mk)}
-                              className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors"
-                              title="Edit Mata Kuliah"
-                            >
-                              <Icon name="edit" size={18} />
-                            </button>
-                            <button
-                              onClick={() => setDeleteTarget(mk)}
-                              className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors"
-                              title="Hapus Mata Kuliah"
-                            >
-                              <Icon name="delete" size={18} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {filteredMK.length === 0 && (
-                    <tr className="border-t border-surface-variant">
-                      <td
-                        colSpan={6}
-                        className="px-6 py-10 text-center font-body text-sm text-on-surface-variant"
-                      >
-                        {mkList.length === 0
-                          ? 'Belum ada mata kuliah. Klik "Tambah Mata Kuliah" untuk memulai.'
-                          : "Tidak ada mata kuliah yang cocok dengan filter."}
+                        ) : (
+                          <span className="inline-flex items-center gap-1 font-label text-xs text-on-surface-variant">
+                            <span className="w-2 h-2 rounded-full bg-outline" />
+                            Belum ada
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Link
+                            href={`/admin/clo/${mk.kode.toLowerCase()}`}
+                            className="px-3 py-1.5 font-label text-xs font-bold text-primary hover:bg-primary-fixed rounded-lg transition-colors inline-flex items-center gap-1"
+                          >
+                            Kelola CLO
+                            <Icon name="arrow_forward" size={14} />
+                          </Link>
+                          <button
+                            onClick={() => openEdit(mk)}
+                            className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors"
+                          >
+                            <Icon name="edit" size={18} />
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget(mk)}
+                            className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors"
+                          >
+                            <Icon name="delete" size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+                {!loading && filteredMK.length === 0 && (
+                  <tr className="border-t border-surface-variant">
+                    <td colSpan={6} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
+                      {mkList.length === 0
+                        ? 'Belum ada mata kuliah. Klik "Tambah Mata Kuliah" untuk memulai.'
+                        : "Tidak ada mata kuliah yang cocok dengan filter."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
+      </div>
     </>
   );
 }

@@ -10,14 +10,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { type AdminAccount } from "@/lib/admin-mock";
-import { useSuperadminData } from "@/app/superadmin/SuperadminDataProvider";
+import {
+  createAdminUser,
+  createProdi,
+  getAdminUsers,
+  getProdi,
+  softDeleteAdminUser,
+  updateAdminUser,
+  updateProdi,
+  type AdminUserWithProdi,
+  type Prodi,
+} from "@/lib/supabase/superadmin-queries";
+
+const INTEGRATION_STATUSES = [
+  { value: "planned", label: "Belum Terintegrasi", className: "bg-surface-container text-on-surface-variant" },
+  { value: "pending", label: "Dalam Proses", className: "bg-blue-50 text-blue-700" },
+  { value: "active", label: "Aktif", className: "bg-green-50 text-green-700" },
+] as const;
+
+type IntegrationStatus = (typeof INTEGRATION_STATUSES)[number]["value"];
+
+// ─── ProdiCombobox ────────────────────────────────────────────────────────────
 
 interface ProdiComboboxProps {
   value: string;
-  options: string[];
-  onSelect: (name: string) => void;
-  onCreate: (name: string) => string | null;
+  options: Prodi[];
+  onSelect: (prodi: Prodi) => void;
+  onCreate: (name: string) => Promise<Prodi | null>;
   placeholder?: string;
 }
 
@@ -42,9 +61,9 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
 
   const q = query.trim();
   const filtered = q
-    ? options.filter((o) => o.toLowerCase().includes(q.toLowerCase()))
+    ? options.filter((o) => o.name.toLowerCase().includes(q.toLowerCase()))
     : options;
-  const exactMatch = options.some((o) => o.toLowerCase() === q.toLowerCase());
+  const exactMatch = options.some((o) => o.name.toLowerCase() === q.toLowerCase());
   const canCreate = q.length > 0 && !exactMatch;
   const totalItems = filtered.length + (canCreate ? 1 : 0);
 
@@ -52,20 +71,20 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
     if (highlight >= totalItems) setHighlight(Math.max(0, totalItems - 1));
   }, [highlight, totalItems]);
 
-  const commitSelect = (name: string) => {
-    onSelect(name);
+  const commitSelect = (prodi: Prodi) => {
+    onSelect(prodi);
     setOpen(false);
     setQuery("");
     setHighlight(0);
   };
 
-  const commitCreate = () => {
+  const commitCreate = async () => {
     if (!canCreate) return;
-    const created = onCreate(q);
+    const created = await onCreate(q);
     if (created) commitSelect(created);
   };
 
-  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKey = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setHighlight((h) => Math.min(totalItems - 1, h + 1));
@@ -74,13 +93,9 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
       setHighlight((h) => Math.max(0, h - 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (highlight < filtered.length) {
-        commitSelect(filtered[highlight]);
-      } else if (canCreate) {
-        commitCreate();
-      }
+      if (highlight < filtered.length) commitSelect(filtered[highlight]);
+      else if (canCreate) await commitCreate();
     } else if (e.key === "Escape") {
-      e.preventDefault();
       setOpen(false);
       setQuery("");
     }
@@ -90,73 +105,44 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
 
   return (
     <div ref={containerRef} className="relative">
-      <div
-        className={`flex items-center h-12 w-full rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] ${open ? "ring-2 ring-primary/40 border-ring" : ""}`}
-      >
+      <div className={`flex items-center h-12 w-full rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] ${open ? "ring-2 ring-primary/40 border-ring" : ""}`}>
         <input
           ref={inputRef}
           type="text"
           value={displayValue}
           placeholder={placeholder ?? "Pilih atau ketik prodi"}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-            setHighlight(0);
-          }}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); setHighlight(0); }}
           onFocus={() => setOpen(true)}
           onClick={() => setOpen(true)}
           onKeyDown={handleKey}
           className="flex-1 bg-transparent px-3 py-2 outline-none font-body text-sm text-on-background placeholder:text-outline min-w-0"
         />
-        <button
-          type="button"
-          tabIndex={-1}
-          onClick={() => {
-            setOpen((o) => !o);
-            inputRef.current?.focus();
-          }}
-          className="px-2 text-on-surface-variant"
-          aria-label="Buka daftar prodi"
-        >
+        <button type="button" tabIndex={-1} onClick={() => { setOpen((o) => !o); inputRef.current?.focus(); }}
+          className="px-2 text-on-surface-variant">
           <Icon name={open ? "expand_less" : "expand_more"} size={20} />
         </button>
       </div>
       {open && (
         <div className="absolute z-50 mt-1 w-full bg-surface-container-lowest border border-outline-variant/40 rounded-md shadow-lg max-h-60 overflow-y-auto">
           {filtered.length === 0 && !canCreate && (
-            <p className="px-3 py-3 font-body text-sm text-on-surface-variant text-center">
-              Tidak ada hasil.
-            </p>
+            <p className="px-3 py-3 font-body text-sm text-on-surface-variant text-center">Tidak ada hasil.</p>
           )}
           {filtered.map((opt, idx) => {
             const isHi = idx === highlight;
-            const isSel = opt === value;
-            const cls = isSel
-              ? "bg-primary-fixed-dim text-primary font-semibold"
-              : isHi
-                ? "bg-surface-container text-on-background"
-                : "text-on-background";
+            const isSel = opt.name === value;
+            const cls = isSel ? "bg-primary-fixed-dim text-primary font-semibold" : isHi ? "bg-surface-container text-on-background" : "text-on-background";
             return (
-              <button
-                key={opt}
-                type="button"
-                onMouseEnter={() => setHighlight(idx)}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => commitSelect(opt)}
-                className={`w-full px-3 py-2 font-body text-sm text-left ${cls}`}
-              >
-                {opt}
+              <button key={opt.id} type="button" onMouseEnter={() => setHighlight(idx)}
+                onMouseDown={(e) => e.preventDefault()} onClick={() => commitSelect(opt)}
+                className={`w-full px-3 py-2 font-body text-sm text-left ${cls}`}>
+                {opt.name}
               </button>
             );
           })}
           {canCreate && (
-            <button
-              type="button"
-              onMouseEnter={() => setHighlight(filtered.length)}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={commitCreate}
-              className={`w-full text-left px-3 py-2 font-body text-sm flex items-center gap-2 border-t border-outline-variant/30 ${highlight === filtered.length ? "bg-primary/10" : ""} text-primary font-semibold`}
-            >
+            <button type="button" onMouseEnter={() => setHighlight(filtered.length)}
+              onMouseDown={(e) => e.preventDefault()} onClick={commitCreate}
+              className={`w-full text-left px-3 py-2 font-body text-sm flex items-center gap-2 border-t border-outline-variant/30 ${highlight === filtered.length ? "bg-primary/10" : ""} text-primary font-semibold`}>
               <Icon name="add" size={16} />
               <span className="truncate">Tambah prodi baru: &ldquo;{q}&rdquo;</span>
             </button>
@@ -167,66 +153,69 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
   );
 }
 
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 interface AdminForm {
   name: string;
   email: string;
-  prodi: string;
-  status: "active" | "inactive";
   password: string;
+  prodi_id: string;
+  prodiName: string;
 }
 
-const emptyForm: AdminForm = { name: "", email: "", prodi: "", status: "active", password: "" };
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
+const emptyForm: AdminForm = { name: "", email: "", password: "", prodi_id: "", prodiName: "" };
 
 export default function ManageAdminsPage() {
-  const { admins: adminList, setAdmins: persist, prodis: prodiList, addProdi } = useSuperadminData();
+  const [adminList, setAdminList] = useState<AdminUserWithProdi[]>([]);
+  const [prodiList, setProdiList] = useState<Prodi[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [prodiFilter, setProdiFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<AdminForm>(emptyForm);
-  const [deleteTarget, setDeleteTarget] = useState<AdminAccount | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminUserWithProdi | null>(null);
 
-  const prodiOptions = prodiList.map((p) => p.name);
-
-  const handleCreateProdi = (name: string): string | null => {
-    const entry = addProdi(name);
-    return entry ? entry.name : null;
-  };
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getAdminUsers(), getProdi()])
+      .then(([admins, prodis]) => {
+        if (!cancelled) { setAdminList(admins); setProdiList(prodis); setLoading(false); }
+      })
+      .catch((e) => { if (!cancelled) { setError((e as Error).message); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, []);
 
   const prodiTanpaAdmin = useMemo(
-    () => prodiList.filter((p) => !adminList.some((a) => a.prodi === p.name)),
+    () => prodiList.filter((p) => !adminList.some((a) => a.prodi_id === p.id)),
     [prodiList, adminList],
   );
 
   const filtered = adminList.filter((a) => {
-    const matchSearch =
-      a.name.toLowerCase().includes(search.toLowerCase()) ||
-      a.email.toLowerCase().includes(search.toLowerCase());
-    const matchProdi = prodiFilter === "all" || a.prodi === prodiFilter;
-    const matchStatus = statusFilter === "all" || a.status === statusFilter;
-    return matchSearch && matchProdi && matchStatus;
+    const matchSearch = a.name.toLowerCase().includes(search.toLowerCase());
+    const matchProdi = prodiFilter === "all" || a.prodi_id === prodiFilter;
+    return matchSearch && matchProdi;
   });
 
-  const openAdd = (presetProdi?: string) => {
+  const openAdd = (presetProdi?: Prodi) => {
     setEditingId(null);
-    setForm({ ...emptyForm, prodi: presetProdi ?? "" });
+    setForm(presetProdi
+      ? { ...emptyForm, prodi_id: presetProdi.id, prodiName: presetProdi.name }
+      : emptyForm);
     setShowModal(true);
   };
 
-  const openEdit = (a: AdminAccount) => {
+  const openEdit = (a: AdminUserWithProdi) => {
     setEditingId(a.id);
     setForm({
       name: a.name,
-      email: a.email,
-      prodi: a.prodi,
-      status: a.status,
+      email: "",
       password: "",
+      prodi_id: a.prodi_id ?? "",
+      prodiName: a.prodi?.name ?? "",
     });
     setShowModal(true);
   };
@@ -235,37 +224,95 @@ export default function ManageAdminsPage() {
     setShowModal(false);
     setEditingId(null);
     setForm(emptyForm);
+    setError(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.name || !form.email || !form.prodi) return;
-    if (!editingId && !form.password) return;
-
-    if (editingId) {
-      persist(adminList.map((a) =>
-        a.id === editingId
-          ? { ...a, name: form.name, email: form.email, prodi: form.prodi, status: form.status }
-          : a
-      ));
-    } else {
-      persist([...adminList, {
-        id: Math.max(0, ...adminList.map((a) => a.id)) + 1,
-        name: form.name,
-        email: form.email,
-        prodi: form.prodi,
-        status: form.status,
-        lastLogin: "Belum pernah",
-        dateCreated: todayISO(),
-      }]);
+  const handleChangeIntegration = async (prodiId: string, status: IntegrationStatus) => {
+    const prev = prodiList.find((p) => p.id === prodiId)?.integration_status ?? null;
+    // Optimistic update.
+    setProdiList((list) => list.map((p) => (p.id === prodiId ? { ...p, integration_status: status } : p)));
+    setAdminList((list) =>
+      list.map((a) =>
+        a.prodi_id === prodiId && a.prodi
+          ? { ...a, prodi: { ...a.prodi, integration_status: status } }
+          : a,
+      ),
+    );
+    try {
+      await updateProdi(prodiId, { integration_status: status });
+    } catch (e) {
+      // Roll back on failure.
+      setProdiList((list) => list.map((p) => (p.id === prodiId ? { ...p, integration_status: prev } : p)));
+      setAdminList((list) =>
+        list.map((a) =>
+          a.prodi_id === prodiId && a.prodi
+            ? { ...a, prodi: { ...a.prodi, integration_status: prev } }
+            : a,
+        ),
+      );
+      setError(`Gagal mengubah status integrasi: ${(e as Error).message}`);
     }
-    closeModal();
   };
 
-  const handleDelete = () => {
+  const handleCreateProdi = async (name: string): Promise<Prodi | null> => {
+    try {
+      const prodi = await createProdi({ name, fakultas: null, integration_status: "planned" });
+      setProdiList((list) => [...list, prodi]);
+      return prodi;
+    } catch (e) {
+      setError(`Gagal menambah prodi: ${(e as Error).message}`);
+      return null;
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name || !form.prodi_id) return;
+    if (!editingId) {
+      if (!form.email || !form.password) {
+        setError("Email dan password wajib diisi untuk admin baru.");
+        return;
+      }
+      if (form.password.length < 8) {
+        setError("Password minimal 8 karakter.");
+        return;
+      }
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      if (editingId) {
+        const updated = await updateAdminUser(editingId, { name: form.name, prodi_id: form.prodi_id });
+        setAdminList((list) => list.map((a) => (a.id === editingId ? updated : a)));
+      } else {
+        const created = await createAdminUser({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          prodi_id: form.prodi_id,
+        });
+        setAdminList((list) => [...list, created]);
+      }
+      closeModal();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
     if (!deleteTarget) return;
-    persist(adminList.filter((a) => a.id !== deleteTarget.id));
-    setDeleteTarget(null);
+    setSaving(true);
+    try {
+      await softDeleteAdminUser(deleteTarget.id);
+      setAdminList((list) => list.filter((a) => a.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inputCls = "w-full bg-surface-container-low rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm text-on-background placeholder:text-outline border border-outline-variant/30";
@@ -283,95 +330,78 @@ export default function ManageAdminsPage() {
                 <Icon name="close" className="text-on-surface-variant" />
               </button>
             </div>
-            {!editingId && (
-              <div className="mb-5 px-4 py-3 bg-tertiary-fixed rounded-xl flex items-start gap-3">
-                <Icon name="info" size={18} className="text-on-tertiary-container shrink-0 mt-0.5" />
-                <p className="font-label text-xs text-on-tertiary-container leading-relaxed">
-                  Akun admin baru akan menerima email dengan kredensial awal. Admin tidak dapat mendaftar mandiri (mengikuti prinsip SSO institusional).
-                </p>
-              </div>
+
+            {error && (
+              <div className="mb-4 px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">{error}</div>
             )}
-            <form onSubmit={handleSubmit} className="space-y-4">
+
+            <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
               <div>
                 <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
                   Nama Lengkap <span className="text-error">*</span>
                 </label>
-                <input
-                  required
-                  type="text"
-                  placeholder="Contoh: Dr. Andi Wibowo, M.Kom."
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
-                  Email Institusi <span className="text-error">*</span>
-                </label>
-                <input
-                  required
-                  type="email"
-                  placeholder="nama@univnusantara.ac.id"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
-                    Prodi <span className="text-error">*</span>
-                  </label>
-                  <ProdiCombobox
-                    value={form.prodi}
-                    options={prodiOptions}
-                    onSelect={(v) => setForm({ ...form, prodi: v })}
-                    onCreate={handleCreateProdi}
-                    placeholder="Pilih atau ketik prodi"
-                  />
-                  <p className="font-label text-[11px] text-on-surface-variant mt-1 leading-snug">
-                    Ketik untuk mencari. Jika prodi belum ada, opsi tambah akan muncul.
-                  </p>
-                </div>
-                <div>
-                  <label className="font-label text-sm text-on-surface-variant mb-1.5 block">Status</label>
-                  <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as "active" | "inactive" })}>
-                    <SelectTrigger className="h-12 w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Aktif</SelectItem>
-                      <SelectItem value="inactive">Nonaktif</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <input required type="text" placeholder="Contoh: Dr. Andi Wibowo, M.Kom." value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={inputCls} />
               </div>
               {!editingId && (
-                <div>
-                  <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
-                    Password Awal <span className="text-error">*</span>
-                  </label>
-                  <input
-                    required
-                    type="password"
-                    placeholder="Min. 8 karakter"
-                    minLength={8}
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    className={inputCls}
-                  />
-                  <p className="font-label text-xs text-on-surface-variant mt-1">
-                    Admin akan diminta mengganti password setelah login pertama.
-                  </p>
-                </div>
+                <>
+                  <div>
+                    <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
+                      Email Login <span className="text-error">*</span>
+                    </label>
+                    <input
+                      required
+                      type="email"
+                      autoComplete="off"
+                      placeholder="admin.prodi@kampus.ac.id"
+                      value={form.email}
+                      onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
+                      Password <span className="text-error">*</span>
+                    </label>
+                    <input
+                      required
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={8}
+                      placeholder="Minimal 8 karakter"
+                      value={form.password}
+                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                      className={inputCls}
+                    />
+                    <p className="font-label text-[11px] text-on-surface-variant mt-1 leading-snug">
+                      Bagikan kredensial ini ke admin prodi. Mereka bisa ubah password setelah login.
+                    </p>
+                  </div>
+                </>
               )}
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={closeModal} className="flex-1 py-3 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors">
+              <div>
+                <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
+                  Prodi <span className="text-error">*</span>
+                </label>
+                <ProdiCombobox
+                  value={form.prodiName}
+                  options={prodiList}
+                  onSelect={(p) => setForm((f) => ({ ...f, prodi_id: p.id, prodiName: p.name }))}
+                  onCreate={handleCreateProdi}
+                  placeholder="Pilih atau ketik prodi"
+                />
+                <p className="font-label text-[11px] text-on-surface-variant mt-1 leading-snug">
+                  Ketik untuk mencari. Jika prodi belum ada, opsi tambah akan muncul.
+                </p>
+              </div>
+              <div className="flex gap-3 pt-8 mt-2 border-t border-outline-variant/20">
+                <button type="button" onClick={closeModal}
+                  className="flex-1 py-3 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors">
                   Batal
                 </button>
-                <button type="submit" className="flex-1 btn-gradient font-label font-bold rounded-xl py-3">
-                  {editingId ? "Simpan Perubahan" : "Buat Akun"}
+                <button type="submit" disabled={saving}
+                  className="flex-1 btn-gradient font-label font-bold rounded-xl py-3 disabled:opacity-60">
+                  {saving ? "Menyimpan..." : editingId ? "Simpan Perubahan" : "Buat Akun"}
                 </button>
               </div>
             </form>
@@ -384,9 +414,11 @@ export default function ManageAdminsPage() {
         title="Hapus Admin?"
         description={
           <>
-            Akun <span className="font-bold text-on-background">{deleteTarget?.name}</span> ({deleteTarget?.prodi}) akan dihapus dari sistem. Mereka tidak dapat lagi mengakses panel admin prodi.
+            Akun <span className="font-bold text-on-background">{deleteTarget?.name}</span>{" "}
+            ({deleteTarget?.prodi?.name}) akan dihapus dari sistem.
           </>
         }
+        loading={saving}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
@@ -396,13 +428,18 @@ export default function ManageAdminsPage() {
           <div className="space-y-2">
             <h1 className="font-headline text-3xl font-bold text-on-background">Kelola Admin Prodi</h1>
             <p className="font-body text-on-surface-variant">
-              Provisi akun admin untuk setiap prodi. Admin tidak melakukan registrasi mandiri.
+              Provisi akun admin untuk setiap prodi.
             </p>
           </div>
-          <button onClick={() => openAdd()} className="btn-gradient font-label font-bold rounded-xl px-6 py-3 flex items-center gap-2 w-fit shadow-[0_4px_14px_rgb(9,76,178,0.25)]">
+          <button onClick={() => openAdd()}
+            className="btn-gradient font-label font-bold rounded-xl px-6 py-3 flex items-center gap-2 w-fit shadow-[0_4px_14px_rgb(9,76,178,0.25)]">
             <Icon name="person_add" size={20} />Tambah Admin
           </button>
         </div>
+
+        {error && !showModal && (
+          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">{error}</div>
+        )}
 
         {prodiTanpaAdmin.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-start gap-3">
@@ -418,12 +455,8 @@ export default function ManageAdminsPage() {
               </p>
               <div className="flex flex-wrap gap-2">
                 {prodiTanpaAdmin.map((p) => (
-                  <button
-                    key={p.name}
-                    type="button"
-                    onClick={() => openAdd(p.name)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-amber-200 rounded-full font-label text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
-                  >
+                  <button key={p.id} type="button" onClick={() => openAdd(p)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-amber-200 rounded-full font-label text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors">
                     <Icon name="add" size={12} />
                     {p.name}
                   </button>
@@ -439,13 +472,14 @@ export default function ManageAdminsPage() {
             <p className="font-headline text-2xl font-bold text-on-background">{adminList.length}</p>
           </div>
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-            <p className="font-label text-sm text-on-surface-variant">Admin Aktif</p>
-            <p className="font-headline text-2xl font-bold text-green-700">{adminList.filter((a) => a.status === "active").length}</p>
+            <p className="font-label text-sm text-on-surface-variant">Total Prodi</p>
+            <p className="font-headline text-2xl font-bold text-primary">{prodiList.length}</p>
           </div>
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
             <p className="font-label text-sm text-on-surface-variant">Prodi Tercakup</p>
-            <p className="font-headline text-2xl font-bold text-primary">
-              {new Set(adminList.map((a) => a.prodi)).size}<span className="font-body text-sm text-on-surface-variant font-medium">/{prodiList.length}</span>
+            <p className="font-headline text-2xl font-bold text-green-700">
+              {new Set(adminList.map((a) => a.prodi_id).filter(Boolean)).size}
+              <span className="font-body text-sm text-on-surface-variant font-medium">/{prodiList.length}</span>
             </p>
           </div>
         </div>
@@ -453,37 +487,17 @@ export default function ManageAdminsPage() {
         <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border flex flex-col lg:flex-row gap-3">
           <div className="relative flex-1">
             <Icon name="search" className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" />
-            <input
-              type="text"
-              placeholder="Cari nama atau email admin..."
-              value={search}
+            <input type="text" placeholder="Cari nama admin..." value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-surface-container-low border-none rounded-xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm placeholder:text-outline"
-            />
+              className="w-full bg-surface-container-low border-none rounded-xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm placeholder:text-outline" />
           </div>
-          <div className="flex gap-3">
-            <Select value={prodiFilter} onValueChange={setProdiFilter}>
-              <SelectTrigger className="h-12 lg:w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Prodi</SelectItem>
-                {prodiOptions.map((p) => (
-                  <SelectItem key={p} value={p}>{p}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-12 lg:w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Status</SelectItem>
-                <SelectItem value="active">Aktif</SelectItem>
-                <SelectItem value="inactive">Nonaktif</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <Select value={prodiFilter} onValueChange={setProdiFilter}>
+            <SelectTrigger className="h-12 lg:w-56"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Semua Prodi</SelectItem>
+              {prodiList.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
@@ -491,13 +505,15 @@ export default function ManageAdminsPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-surface-container-low">
-                  {["Nama", "Email", "Prodi", "Status", "Login Terakhir", "Dibuat", "Aksi"].map((h) => (
+                  {["Nama", "Email", "Prodi", "Status Integrasi", "Aksi"].map((h) => (
                     <th key={h} className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((a) => (
+                {loading ? (
+                  <tr><td colSpan={5} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">Memuat data...</td></tr>
+                ) : filtered.map((a) => (
                   <tr key={a.id} className="hover:bg-surface-container-low transition-colors border-t border-surface-variant">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -507,16 +523,41 @@ export default function ManageAdminsPage() {
                         <span className="font-body text-sm font-medium text-on-background">{a.name}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 font-body text-sm text-on-surface-variant">{a.email}</td>
-                    <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">{a.prodi}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1 font-label text-xs ${a.status === "active" ? "text-green-700" : "text-on-surface-variant"}`}>
-                        <span className={`w-2 h-2 rounded-full ${a.status === "active" ? "bg-green-500" : "bg-outline"}`} />
-                        {a.status === "active" ? "Aktif" : "Nonaktif"}
-                      </span>
+                    <td className="px-6 py-4 font-body text-sm text-on-surface-variant whitespace-nowrap">
+                      {a.email ?? "—"}
                     </td>
-                    <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">{a.lastLogin}</td>
-                    <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">{a.dateCreated}</td>
+                    <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
+                      {a.prodi?.name ?? "—"}
+                    </td>
+                    <td className="px-6 py-4">
+                      {a.prodi_id ? (
+                        (() => {
+                          const current = (a.prodi?.integration_status ?? "planned") as IntegrationStatus;
+                          const style = INTEGRATION_STATUSES.find((s) => s.value === current) ?? INTEGRATION_STATUSES[0];
+                          return (
+                            <Select
+                              value={current}
+                              onValueChange={(v) => handleChangeIntegration(a.prodi_id!, v as IntegrationStatus)}
+                            >
+                              <SelectTrigger
+                                className={`h-8 w-44 rounded-full border-none font-label text-xs font-semibold ${style.className}`}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {INTEGRATION_STATUSES.map((s) => (
+                                  <SelectItem key={s.value} value={s.value}>
+                                    {s.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          );
+                        })()
+                      ) : (
+                        <span className="font-label text-xs text-on-surface-variant">—</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => openEdit(a)} className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors">
@@ -529,10 +570,10 @@ export default function ManageAdminsPage() {
                     </td>
                   </tr>
                 ))}
-                {filtered.length === 0 && (
+                {!loading && filtered.length === 0 && (
                   <tr className="border-t border-surface-variant">
-                    <td colSpan={7} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
-                      Tidak ada admin yang cocok dengan filter.
+                    <td colSpan={5} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
+                      {adminList.length === 0 ? "Belum ada admin." : "Tidak ada yang cocok."}
                     </td>
                   </tr>
                 )}

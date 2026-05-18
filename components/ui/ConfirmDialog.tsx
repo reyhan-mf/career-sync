@@ -10,6 +10,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "danger" | "primary";
+  loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -21,6 +22,7 @@ export default function ConfirmDialog({
   confirmLabel = "Hapus",
   cancelLabel = "Batal",
   variant = "danger",
+  loading = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -31,7 +33,7 @@ export default function ConfirmDialog({
   return (
     <div
       className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4"
-      onClick={onCancel}
+      onClick={loading ? undefined : onCancel}
     >
       <div
         className="bg-surface-container-lowest rounded-2xl p-6 w-full max-w-sm shadow-xl"
@@ -63,20 +65,27 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors"
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {cancelLabel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className={`flex-1 py-2.5 rounded-xl font-label text-sm font-bold transition-colors ${
-              isDanger
-                ? "bg-error text-on-error hover:bg-error/90"
-                : "btn-gradient"
+            disabled={loading}
+            className={`flex-1 py-2.5 rounded-xl font-label text-sm font-bold transition-colors flex items-center justify-center gap-2 ${
+              loading
+                ? "bg-surface-container-high text-on-surface-variant cursor-not-allowed"
+                : isDanger
+                  ? "bg-error text-on-error hover:bg-error/90"
+                  : "btn-gradient"
             }`}
           >
-            {confirmLabel}
+            {loading && (
+              <Icon name="progress_activity" size={18} className="animate-spin" />
+            )}
+            {loading ? "Memproses..." : confirmLabel}
           </button>
         </div>
       </div>

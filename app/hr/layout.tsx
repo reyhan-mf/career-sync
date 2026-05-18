@@ -1,5 +1,6 @@
 "use client";
 
+import AuthGate from "@/components/auth/AuthGate";
 import type { NavItem } from "@/components/layout/Sidebar";
 import Sidebar from "@/components/layout/Sidebar";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
@@ -33,8 +34,10 @@ function HRLayoutInner({ children }: { children: React.ReactNode }) {
 
 export default function HRLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SidebarProvider>
-      <HRLayoutInner>{children}</HRLayoutInner>
-    </SidebarProvider>
+    <AuthGate role="hr">
+      <SidebarProvider>
+        <HRLayoutInner>{children}</HRLayoutInner>
+      </SidebarProvider>
+    </AuthGate>
   );
 }

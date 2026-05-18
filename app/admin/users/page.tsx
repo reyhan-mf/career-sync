@@ -10,19 +10,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  adminProfile,
-  angkatanOptions,
-  initialMahasiswa,
-  type MahasiswaItem,
-} from "@/lib/admin-mock";
-import React, { useState } from "react";
+  createStudent,
+  deleteStudent,
+  getStudents,
+  updateStudent,
+  type Student,
+} from "@/lib/supabase/admin-queries";
+import { useAdminProdi } from "@/lib/supabase/useAdminProdi";
+import React, { useEffect, useState } from "react";
+
+const angkatanOptions = Array.from({ length: 10 }, (_, i) =>
+  String(new Date().getFullYear() - i),
+);
 
 interface UserForm {
   nim: string;
   nama: string;
   email: string;
-  angkatan: string;
   password: string;
+  angkatan: string;
   status: "active" | "inactive";
 }
 
@@ -30,28 +36,45 @@ const emptyForm: UserForm = {
   nim: "",
   nama: "",
   email: "",
-  angkatan: "",
   password: "",
+  angkatan: "",
   status: "active",
 };
 
 export default function UsersPage() {
+  const { data: adminCtx, loading: ctxLoading, error: ctxError } = useAdminProdi();
   const [search, setSearch] = useState("");
   const [angkatanFilter, setAngkatanFilter] = useState("all");
-  const [userList, setUserList] = useState<MahasiswaItem[]>(initialMahasiswa);
+  const [userList, setUserList] = useState<Student[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [studentsError, setStudentsError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const setError = setFormError;
   const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<UserForm>(emptyForm);
-  const [deleteTarget, setDeleteTarget] = useState<MahasiswaItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Student | null>(null);
+
+  const loading = ctxLoading || studentsLoading;
+  const error = formError ?? studentsError ?? ctxError;
+
+  useEffect(() => {
+    if (!adminCtx) return;
+    let cancelled = false;
+    getStudents(adminCtx.prodi_id)
+      .then((data) => { if (!cancelled) { setUserList(data); setStudentsLoading(false); } })
+      .catch((e) => { if (!cancelled) { setStudentsError((e as Error).message); setStudentsLoading(false); } });
+    return () => { cancelled = true; };
+  }, [adminCtx]);
 
   const filtered = userList.filter((u) => {
     const matchSearch =
       u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.nim.includes(search) ||
-      u.email.toLowerCase().includes(search.toLowerCase());
-    return (
-      matchSearch && (angkatanFilter === "all" || u.angkatan === angkatanFilter)
-    );
+      u.nim.includes(search);
+    const matchAngkatan =
+      angkatanFilter === "all" || String(u.angkatan) === angkatanFilter;
+    return matchSearch && matchAngkatan;
   });
 
   const openAdd = () => {
@@ -60,15 +83,15 @@ export default function UsersPage() {
     setShowModal(true);
   };
 
-  const openEdit = (u: MahasiswaItem) => {
+  const openEdit = (u: Student) => {
     setEditingId(u.id);
     setForm({
       nim: u.nim,
       nama: u.name,
-      email: u.email,
-      angkatan: u.angkatan,
+      email: u.email ?? "",
       password: "",
-      status: u.status,
+      angkatan: u.angkatan ? String(u.angkatan) : "",
+      status: (u.status as "active" | "inactive") ?? "active",
     });
     setShowModal(true);
   };
@@ -80,55 +103,69 @@ export default function UsersPage() {
   };
 
   const handleNIMChange = (nim: string) => {
-    if (editingId) {
-      setForm({ ...form, nim });
-    } else {
-      setForm({ ...form, nim, email: nim ? `${nim}@student.ac.id` : "" });
-    }
+    setForm((f) => ({ ...f, nim }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.nim || !form.nama || !form.angkatan) return;
-
-    const email = form.email || `${form.nim}@student.ac.id`;
-
-    if (editingId) {
-      setUserList(
-        userList.map((u) =>
-          u.id === editingId
-            ? {
-                ...u,
-                nim: form.nim,
-                name: form.nama,
-                email,
-                angkatan: form.angkatan,
-                status: form.status,
-              }
-            : u,
-        ),
-      );
-    } else {
-      setUserList([
-        ...userList,
-        {
-          id: Math.max(0, ...userList.map((u) => u.id)) + 1,
+    if (!editingId) {
+      if (!form.email || !form.password) {
+        setError("Email dan password wajib diisi untuk mahasiswa baru.");
+        return;
+      }
+      if (form.password.length < 8) {
+        setError("Password minimal 8 karakter.");
+        return;
+      }
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      if (editingId) {
+        const updated = await updateStudent(editingId, {
           nim: form.nim,
           name: form.nama,
-          email,
-          angkatan: form.angkatan,
+          angkatan: parseInt(form.angkatan),
           status: form.status,
-          lastLogin: "-",
-        },
-      ]);
+        });
+        setUserList((list) => list.map((u) => (u.id === editingId ? updated : u)));
+      } else {
+        if (!adminCtx) {
+          setError("Akun admin belum ditautkan ke prodi. Hubungi superadmin.");
+          return;
+        }
+        const created = await createStudent({
+          nim: form.nim,
+          name: form.nama,
+          email: form.email,
+          password: form.password,
+          angkatan: parseInt(form.angkatan),
+          status: form.status,
+          prodi_id: adminCtx.prodi_id,
+        });
+        setUserList((list) => [...list, created]);
+      }
+      closeModal();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
-    closeModal();
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
-    setUserList(userList.filter((u) => u.id !== deleteTarget.id));
-    setDeleteTarget(null);
+    setSaving(true);
+    try {
+      await deleteStudent(deleteTarget.id);
+      setUserList((list) => list.filter((u) => u.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inputCls =
@@ -157,13 +194,12 @@ export default function UsersPage() {
                 <Icon name="close" className="text-on-surface-variant" />
               </button>
             </div>
-            <div className="mb-4 px-4 py-3 bg-primary-fixed rounded-xl flex items-center gap-2">
-              <Icon name="school" size={16} className="text-primary" />
-              <p className="font-label text-sm text-primary font-semibold">
-                Prodi {adminProfile.prodi}
-              </p>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="mb-4 px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+                {error}
+              </div>
+            )}
+            <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
               <div>
                 <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
                   NIM <span className="text-error">*</span>
@@ -186,25 +222,46 @@ export default function UsersPage() {
                   type="text"
                   placeholder="Nama sesuai KTP"
                   value={form.nama}
-                  onChange={(e) => setForm({ ...form, nama: e.target.value })}
+                  onChange={(e) => setForm((f) => ({ ...f, nama: e.target.value }))}
                   className={inputCls}
                 />
               </div>
-              <div>
-                <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  placeholder="Auto-generate dari NIM"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className={inputCls}
-                />
-                <p className="font-label text-xs text-on-surface-variant mt-1">
-                  Otomatis terisi dari NIM jika dibiarkan kosong.
-                </p>
-              </div>
+              {!editingId && (
+                <>
+                  <div>
+                    <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
+                      Email Login <span className="text-error">*</span>
+                    </label>
+                    <input
+                      required
+                      type="email"
+                      autoComplete="off"
+                      placeholder="24001@kampus.ac.id"
+                      value={form.email}
+                      onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
+                      Password <span className="text-error">*</span>
+                    </label>
+                    <input
+                      required
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={8}
+                      placeholder="Minimal 8 karakter"
+                      value={form.password}
+                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                      className={inputCls}
+                    />
+                    <p className="font-label text-[11px] text-on-surface-variant mt-1 leading-snug">
+                      Bagikan kredensial ini ke mahasiswa. Mereka bisa ubah password setelah login.
+                    </p>
+                  </div>
+                </>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
@@ -212,16 +269,14 @@ export default function UsersPage() {
                   </label>
                   <Select
                     value={form.angkatan || undefined}
-                    onValueChange={(v) => setForm({ ...form, angkatan: v })}
+                    onValueChange={(v) => setForm((f) => ({ ...f, angkatan: v }))}
                   >
                     <SelectTrigger className="h-12 w-full">
                       <SelectValue placeholder="Pilih" />
                     </SelectTrigger>
                     <SelectContent>
                       {angkatanOptions.map((a) => (
-                        <SelectItem key={a} value={a}>
-                          {a}
-                        </SelectItem>
+                        <SelectItem key={a} value={a}>{a}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -232,9 +287,7 @@ export default function UsersPage() {
                   </label>
                   <Select
                     value={form.status}
-                    onValueChange={(v) =>
-                      setForm({ ...form, status: v as "active" | "inactive" })
-                    }
+                    onValueChange={(v) => setForm((f) => ({ ...f, status: v as "active" | "inactive" }))}
                   >
                     <SelectTrigger className="h-12 w-full">
                       <SelectValue />
@@ -246,27 +299,6 @@ export default function UsersPage() {
                   </Select>
                 </div>
               </div>
-              {!editingId && (
-                <div>
-                  <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
-                    Password Awal <span className="text-error">*</span>
-                  </label>
-                  <input
-                    required
-                    type="password"
-                    placeholder="Min. 8 karakter"
-                    minLength={8}
-                    value={form.password}
-                    onChange={(e) =>
-                      setForm({ ...form, password: e.target.value })
-                    }
-                    className={inputCls}
-                  />
-                  <p className="font-label text-xs text-on-surface-variant mt-1">
-                    Mahasiswa dapat mengganti password setelah login pertama.
-                  </p>
-                </div>
-              )}
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -277,9 +309,10 @@ export default function UsersPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 btn-gradient font-label font-bold rounded-xl py-3"
+                  disabled={saving}
+                  className="flex-1 btn-gradient font-label font-bold rounded-xl py-3 disabled:opacity-60"
                 >
-                  {editingId ? "Simpan Perubahan" : "Tambahkan"}
+                  {saving ? "Menyimpan..." : editingId ? "Simpan Perubahan" : "Tambahkan"}
                 </button>
               </div>
             </form>
@@ -293,13 +326,12 @@ export default function UsersPage() {
         description={
           <>
             Akun{" "}
-            <span className="font-bold text-on-background">
-              {deleteTarget?.name}
-            </span>{" "}
-            (NIM {deleteTarget?.nim}) akan dihapus dari sistem. Tindakan ini
-            tidak dapat dibatalkan.
+            <span className="font-bold text-on-background">{deleteTarget?.name}</span>{" "}
+            (NIM {deleteTarget?.nim}) akan dihapus dari sistem. Tindakan ini tidak dapat
+            dibatalkan.
           </>
         }
+        loading={saving}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
@@ -311,7 +343,7 @@ export default function UsersPage() {
               Manajemen Mahasiswa
             </h1>
             <p className="font-body text-on-surface-variant">
-              Kelola akun mahasiswa Prodi {adminProfile.prodi}.
+              {adminCtx ? `Kelola akun mahasiswa Prodi ${adminCtx.prodi_name}.` : "Kelola akun mahasiswa program studi."}
             </p>
           </div>
           <button
@@ -323,27 +355,25 @@ export default function UsersPage() {
           </button>
         </div>
 
+        {error && !showModal && (
+          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+            {error}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-            <p className="font-label text-sm text-on-surface-variant">
-              Total Mahasiswa
-            </p>
-            <p className="font-headline text-2xl font-bold text-on-background">
-              {userList.length}
-            </p>
+            <p className="font-label text-sm text-on-surface-variant">Total Mahasiswa</p>
+            <p className="font-headline text-2xl font-bold text-on-background">{userList.length}</p>
           </div>
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-            <p className="font-label text-sm text-on-surface-variant">
-              Akun Aktif
-            </p>
+            <p className="font-label text-sm text-on-surface-variant">Akun Aktif</p>
             <p className="font-headline text-2xl font-bold text-green-700">
               {userList.filter((u) => u.status === "active").length}
             </p>
           </div>
           <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
-            <p className="font-label text-sm text-on-surface-variant">
-              Akun Nonaktif
-            </p>
+            <p className="font-label text-sm text-on-surface-variant">Akun Nonaktif</p>
             <p className="font-headline text-2xl font-bold text-on-surface-variant">
               {userList.filter((u) => u.status === "inactive").length}
             </p>
@@ -352,10 +382,7 @@ export default function UsersPage() {
 
         <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
-            <Icon
-              name="search"
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant"
-            />
+            <Icon name="search" className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" />
             <input
               type="text"
               placeholder="Cari NIM atau nama mahasiswa..."
@@ -371,9 +398,7 @@ export default function UsersPage() {
             <SelectContent>
               <SelectItem value="all">Semua Angkatan</SelectItem>
               {angkatanOptions.map((a) => (
-                <SelectItem key={a} value={a}>
-                  Angkatan {a}
-                </SelectItem>
+                <SelectItem key={a} value={a}>Angkatan {a}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -384,15 +409,7 @@ export default function UsersPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-surface-container-low">
-                  {[
-                    "NIM",
-                    "Nama",
-                    "Angkatan",
-                    "Email",
-                    "Status",
-                    "Login Terakhir",
-                    "Aksi",
-                  ].map((h) => (
+                  {["NIM", "Nama", "Email", "Angkatan", "Status", "Aksi"].map((h) => (
                     <th
                       key={h}
                       className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}
@@ -403,46 +420,39 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((u) => (
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
+                      Memuat data...
+                    </td>
+                  </tr>
+                ) : filtered.map((u) => (
                   <tr
                     key={u.id}
                     className="hover:bg-surface-container-low transition-colors border-t border-surface-variant"
                   >
-                    <td className="px-6 py-4 font-label text-sm font-bold text-primary">
-                      {u.nim}
-                    </td>
+                    <td className="px-6 py-4 font-label text-sm font-bold text-primary">{u.nim}</td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 bg-primary-fixed rounded-full flex items-center justify-center">
-                          <Icon
-                            name="person"
-                            className="text-primary"
-                            size={16}
-                          />
+                          <Icon name="person" className="text-primary" size={16} />
                         </div>
-                        <span className="font-body text-sm font-medium text-on-background">
-                          {u.name}
-                        </span>
+                        <span className="font-body text-sm font-medium text-on-background">{u.name}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 font-label text-sm text-on-surface-variant">
-                      {u.angkatan}
+                    <td className="px-6 py-4 font-body text-sm text-on-surface-variant whitespace-nowrap">
+                      {u.email ?? "—"}
                     </td>
-                    <td className="px-6 py-4 font-body text-sm text-on-surface-variant">
-                      {u.email}
+                    <td className="px-6 py-4 font-label text-sm text-on-surface-variant">
+                      {u.angkatan ?? "—"}
                     </td>
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex items-center gap-1 font-label text-xs ${u.status === "active" ? "text-green-700" : "text-on-surface-variant"}`}
                       >
-                        <span
-                          className={`w-2 h-2 rounded-full ${u.status === "active" ? "bg-green-500" : "bg-outline"}`}
-                        />
+                        <span className={`w-2 h-2 rounded-full ${u.status === "active" ? "bg-green-500" : "bg-outline"}`} />
                         {u.status === "active" ? "Aktif" : "Nonaktif"}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 font-label text-sm text-on-surface-variant">
-                      {u.lastLogin}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -462,12 +472,9 @@ export default function UsersPage() {
                     </td>
                   </tr>
                 ))}
-                {filtered.length === 0 && (
+                {!loading && filtered.length === 0 && (
                   <tr className="border-t border-surface-variant">
-                    <td
-                      colSpan={7}
-                      className="px-6 py-10 text-center font-body text-sm text-on-surface-variant"
-                    >
+                    <td colSpan={6} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
                       Tidak ada mahasiswa yang cocok dengan filter.
                     </td>
                   </tr>

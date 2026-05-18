@@ -1,5 +1,6 @@
 "use client";
 
+import AuthGate from "@/components/auth/AuthGate";
 import type { NavItem } from "@/components/layout/Sidebar";
 import Sidebar from "@/components/layout/Sidebar";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
@@ -36,8 +37,10 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   return (
-    <SidebarProvider>
-      <AdminLayoutInner>{children}</AdminLayoutInner>
-    </SidebarProvider>
+    <AuthGate role="admin">
+      <SidebarProvider>
+        <AdminLayoutInner>{children}</AdminLayoutInner>
+      </SidebarProvider>
+    </AuthGate>
   );
 }

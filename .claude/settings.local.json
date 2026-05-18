@@ -2,7 +2,17 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc *)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "Bash(npm install *)",
+      "Bash(Select-Object Name)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__deploy_edge_function"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }
