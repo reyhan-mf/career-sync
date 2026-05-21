@@ -24,6 +24,7 @@ import {
   type Student,
   type StudentCLO,
 } from "@/lib/supabase/admin-queries";
+import { reportAdminError } from "@/lib/supabase/adminErrors";
 
 const gradeOptions = ["A", "AB", "B", "BC", "C", "D", "E"];
 
@@ -92,7 +93,7 @@ export default function MKGradesMatrixPage() {
       })
       .catch((e) => {
         if (!cancelled && e !== "cancelled" && e !== "notfound") {
-          setError((e as Error).message);
+          setError(reportAdminError(e, "loadGradesMatrix"));
           setLoading(false);
         }
       });
@@ -169,7 +170,7 @@ export default function MKGradesMatrixPage() {
       });
       closeModal();
     } catch (e) {
-      setError((e as Error).message);
+      setError(reportAdminError(e, "upsertStudentCLO"));
     } finally {
       setSaving(false);
     }
@@ -188,7 +189,7 @@ export default function MKGradesMatrixPage() {
       setDeleteTarget(null);
       setTarget(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(reportAdminError(e, "deleteStudentCLO"));
     } finally {
       setSaving(false);
     }

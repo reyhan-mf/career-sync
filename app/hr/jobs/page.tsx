@@ -18,8 +18,12 @@ import {
   type JobType,
   type JobWithSkills,
 } from "@/lib/supabase/hr-queries";
+import { hrDataMutators } from "@/lib/supabase/hrDataStore";
+import { reportHrError } from "@/lib/supabase/hrErrors";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useMemo, useState } from "react";
+import { useHRData } from "../HRDataProvider";
 
 const jobTypeOptions: JobType[] = ["Full-time", "Part-time", "Internship", "Contract"];
 const jobCategoryOptions = ["Web", "Data", "Mobile", "DevOps", "Design", "Network", "Lainnya"];
@@ -78,10 +82,10 @@ function ManageJobsContent() {
   const searchParams = useSearchParams();
   const openNewFromUrl = searchParams.get("new") === "1";
 
-  const [jobs, setJobs] = useState<JobWithSkills[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { hr, jobs, applications, loading: storeLoading, error: storeError } = useHRData();
+
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -95,18 +99,13 @@ function ManageJobsContent() {
   const [newQualification, setNewQualification] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<JobWithSkills | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    getJobs()
-      .then((data) => { if (!cancelled) { setJobs(data); setLoading(false); } })
-      .catch((e) => { if (!cancelled) { setError((e as Error).message); setLoading(false); } });
-    return () => { cancelled = true; };
-  }, []);
-
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return jobs.filter((j) => {
-      const matchesSearch = !q || j.title.toLowerCase().includes(q) || (j.location ?? "").toLowerCase().includes(q);
+      const matchesSearch =
+        !q ||
+        j.title.toLowerCase().includes(q) ||
+        (j.location ?? "").toLowerCase().includes(q);
       const matchesStatus = statusFilter === "all" || j.status === statusFilter;
       const matchesType = typeFilter === "all" || j.job_type === typeFilter;
       const matchesCategory = categoryFilter === "all" || j.category === categoryFilter;
@@ -114,8 +113,17 @@ function ManageJobsContent() {
     });
   }, [jobs, search, statusFilter, typeFilter, categoryFilter]);
 
+  const applicantsByJob = useMemo(() => {
+    const map = new Map<string, number>();
+    applications.forEach((a) => {
+      if (!a.job_id) return;
+      map.set(a.job_id, (map.get(a.job_id) ?? 0) + 1);
+    });
+    return map;
+  }, [applications]);
+
   const activeCount = jobs.filter((j) => j.status === "active").length;
-  const totalApplicants = 0;
+  const totalApplicants = applications.length;
   const closingCount = jobs.filter((j) => j.status === "closing").length;
 
   const openAdd = () => {
@@ -123,6 +131,7 @@ function ManageJobsContent() {
     setForm(emptyForm);
     setNewSkill("");
     setNewQualification("");
+    setActionError(null);
     setShowModal(true);
   };
 
@@ -137,11 +146,14 @@ function ManageJobsContent() {
       deadline: j.deadline ? j.deadline.split("T")[0] : "",
       status: j.status as JobStatus,
       description: j.description ?? "",
-      qualificationSkills: j.requirements.map((r) => r.req_text),
+      qualificationSkills: [...j.requirements]
+        .sort((a, b) => a.position - b.position)
+        .map((r) => r.req_text),
       skills: j.job_skills.map((s) => s.skill),
     });
     setNewSkill("");
     setNewQualification("");
+    setActionError(null);
     setShowModal(true);
   };
 
@@ -151,7 +163,7 @@ function ManageJobsContent() {
     setForm(emptyForm);
     setNewSkill("");
     setNewQualification("");
-    setError(null);
+    setActionError(null);
   };
 
   const addSkill = () => {
@@ -169,9 +181,9 @@ function ManageJobsContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.title || !form.location) return;
+    if (!form.title || !form.location || !hr) return;
     setSaving(true);
-    setError(null);
+    setActionError(null);
     try {
       const payload = {
         title: form.title,
@@ -182,22 +194,20 @@ function ManageJobsContent() {
         deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
         status: form.status,
         description: form.description || null,
-        hr_id: null,
-        company_id: null,
+        hr_id: hr.id,
+        company_id: hr.company_id ?? null,
       };
 
       if (editingId) {
         await updateJob(editingId, payload, form.skills, form.qualificationSkills);
-        const updated = await getJobs();
-        setJobs(updated);
       } else {
         await createJob(payload, form.skills, form.qualificationSkills);
-        const updated = await getJobs();
-        setJobs(updated);
       }
+      const next = await getJobs({ hrId: hr.id });
+      hrDataMutators.setJobs(() => next);
       closeModal();
     } catch (e) {
-      setError((e as Error).message);
+      setActionError(reportHrError(e, "jobs.save"));
     } finally {
       setSaving(false);
     }
@@ -206,19 +216,23 @@ function ManageJobsContent() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setSaving(true);
+    setActionError(null);
+    const id = deleteTarget.id;
     try {
-      await deleteJob(deleteTarget.id);
-      setJobs((list) => list.filter((j) => j.id !== deleteTarget.id));
+      await deleteJob(id);
+      hrDataMutators.setJobs((prev) => prev.filter((j) => j.id !== id));
       setDeleteTarget(null);
     } catch (e) {
-      setError((e as Error).message);
+      setActionError(reportHrError(e, "jobs.delete"));
     } finally {
       setSaving(false);
     }
   };
 
-  const inputCls = "w-full bg-surface-container-low rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm text-on-background placeholder:text-outline border border-outline-variant/30";
-  const labelCls = "font-label text-xs font-medium text-on-surface-variant mb-1 block";
+  const inputCls =
+    "w-full bg-surface-container-low rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm text-on-background placeholder:text-outline border border-outline-variant/30";
+  const labelCls =
+    "font-label text-xs font-medium text-on-surface-variant mb-1 block";
 
   return (
     <>
@@ -241,8 +255,8 @@ function ManageJobsContent() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-              {error && (
-                <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">{error}</div>
+              {actionError && (
+                <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">{actionError}</div>
               )}
 
               <div>
@@ -309,7 +323,6 @@ function ManageJobsContent() {
                   className={`${inputCls} resize-none`} />
               </div>
 
-              {/* Skills */}
               <div>
                 <label className={labelCls}>Tech Skills</label>
                 <div className="flex gap-2 mb-2">
@@ -336,7 +349,6 @@ function ManageJobsContent() {
                 )}
               </div>
 
-              {/* Qualifications */}
               <div>
                 <label className={labelCls}>Kualifikasi / Kompetensi</label>
                 <div className="flex gap-2 mb-2">
@@ -371,7 +383,7 @@ function ManageJobsContent() {
                 className="flex-1 py-3 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors">
                 Batal
               </button>
-              <button type="submit" disabled={saving}
+              <button type="submit" disabled={saving || !hr}
                 className="flex-1 btn-gradient font-label font-bold rounded-xl py-3 disabled:opacity-60">
                 {saving ? "Menyimpan..." : editingId ? "Simpan Perubahan" : "Publikasikan"}
               </button>
@@ -398,14 +410,16 @@ function ManageJobsContent() {
             <h1 className="font-headline text-3xl font-bold text-on-background">Kelola Lowongan</h1>
             <p className="font-body text-on-surface-variant">Buat, edit, dan pantau lowongan kerja.</p>
           </div>
-          <button onClick={openAdd}
-            className="btn-gradient font-label font-bold rounded-xl px-6 py-3 flex items-center gap-2 w-fit shadow-[0_4px_14px_rgb(9,76,178,0.25)]">
+          <button onClick={openAdd} disabled={!hr}
+            className="btn-gradient font-label font-bold rounded-xl px-6 py-3 flex items-center gap-2 w-fit shadow-[0_4px_14px_rgb(9,76,178,0.25)] disabled:opacity-60">
             <Icon name="add" size={20} /> Tambah Lowongan
           </button>
         </div>
 
-        {error && !showModal && (
-          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">{error}</div>
+        {(storeError || actionError) && !showModal && (
+          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+            {actionError ?? storeError}
+          </div>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -458,7 +472,7 @@ function ManageJobsContent() {
         </div>
 
         <div className="space-y-3">
-          {loading ? (
+          {storeLoading && jobs.length === 0 ? (
             <div className="bg-surface-container-lowest rounded-2xl p-10 text-center font-body text-sm text-on-surface-variant">
               Memuat data...
             </div>
@@ -487,6 +501,10 @@ function ManageJobsContent() {
                         {j.category}
                       </span>
                     )}
+                    <span className="inline-flex items-center gap-1 font-label text-xs text-on-surface-variant px-2 py-0.5 rounded-full bg-surface-container">
+                      <Icon name="group" size={12} />
+                      {applicantsByJob.get(j.id) ?? 0} pelamar
+                    </span>
                   </div>
                   <h3 className="font-headline text-lg font-bold text-on-background">{j.title}</h3>
                   <div className="flex flex-wrap gap-3 mt-1 text-on-surface-variant">
@@ -520,6 +538,10 @@ function ManageJobsContent() {
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <Link href={`/hr/jobs/${j.id}`}
+                    className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors">
+                    <Icon name="visibility" size={18} />
+                  </Link>
                   <button onClick={() => openEdit(j)}
                     className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors">
                     <Icon name="edit" size={18} />

@@ -14,6 +14,7 @@ import {
   type CLO,
   type Matkul,
 } from "@/lib/supabase/admin-queries";
+import { reportAdminError } from "@/lib/supabase/adminErrors";
 
 interface CLOForm {
   clo_code: string;
@@ -53,7 +54,7 @@ export default function MataKuliahCLOPage() {
         setLoading(false);
       })
       .catch((e) => {
-        if (!cancelled) { setError((e as Error).message); setLoading(false); }
+        if (!cancelled) { setError(reportAdminError(e, "loadMatkulCLOs")); setLoading(false); }
       });
     return () => { cancelled = true; };
   }, [params.kodeMK]);
@@ -114,7 +115,7 @@ export default function MataKuliahCLOPage() {
       }
       closeModal();
     } catch (e) {
-      setError((e as Error).message);
+      setError(reportAdminError(e, editingId ? "updateCLO" : "createCLO"));
     } finally {
       setSaving(false);
     }
@@ -128,7 +129,7 @@ export default function MataKuliahCLOPage() {
       setCloList((list) => list.filter((c) => c.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(reportAdminError(e, "deleteCLO"));
     } finally {
       setSaving(false);
     }

@@ -9,6 +9,7 @@ import {
   type Student,
   type StudentCLO,
 } from "./admin-queries";
+import { reportAdminError } from "./adminErrors";
 import type { AdminProdiInfo } from "./useAdminProdi";
 
 export interface AdminDataState {
@@ -260,7 +261,7 @@ export function ensureAdminDataInitialized(): Promise<void> {
       });
       subscribeRealtime(adminCtx.prodi_id);
     } catch (e) {
-      setState({ loading: false, error: (e as Error).message });
+      setState({ loading: false, error: reportAdminError(e, "adminDataStore.init") });
       initPromise = null;
     }
   })();

@@ -6,6 +6,7 @@ import Sidebar from "@/components/layout/Sidebar";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import React from "react";
+import { HRDataProvider } from "./HRDataProvider";
 
 const hrNav: NavItem[] = [
   { label: "Dashboard", icon: "dashboard", href: "/hr/dashboard" },
@@ -35,9 +36,11 @@ function HRLayoutInner({ children }: { children: React.ReactNode }) {
 export default function HRLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGate role="hr">
-      <SidebarProvider>
-        <HRLayoutInner>{children}</HRLayoutInner>
-      </SidebarProvider>
+      <HRDataProvider>
+        <SidebarProvider>
+          <HRLayoutInner>{children}</HRLayoutInner>
+        </SidebarProvider>
+      </HRDataProvider>
     </AuthGate>
   );
 }

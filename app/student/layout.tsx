@@ -6,6 +6,7 @@ import Sidebar from "@/components/layout/Sidebar";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
 import TopBar from "@/components/layout/TopBar";
 import React from "react";
+import { StudentDataProvider } from "./StudentDataProvider";
 
 const studentNav: NavItem[] = [
   { label: "Dashboard", icon: "dashboard", href: "/student/dashboard" },
@@ -40,9 +41,11 @@ export default function StudentLayout({
 }) {
   return (
     <AuthGate role="student">
-      <SidebarProvider>
-        <StudentLayoutInner>{children}</StudentLayoutInner>
-      </SidebarProvider>
+      <StudentDataProvider>
+        <SidebarProvider>
+          <StudentLayoutInner>{children}</StudentLayoutInner>
+        </SidebarProvider>
+      </StudentDataProvider>
     </AuthGate>
   );
 }

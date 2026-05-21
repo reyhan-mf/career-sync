@@ -15,6 +15,7 @@ import {
   updateMatkul,
   type Matkul,
 } from "@/lib/supabase/admin-queries";
+import { reportAdminError } from "@/lib/supabase/adminErrors";
 import { useAdminData } from "../AdminDataProvider";
 import Link from "next/link";
 import React, { useMemo, useState } from "react";
@@ -143,7 +144,7 @@ export default function AdminCLOPage() {
       }
       closeModal();
     } catch (e) {
-      setError((e as Error).message);
+      setError(reportAdminError(e, editingId ? "updateMatkul" : "createMatkul"));
     } finally {
       setSaving(false);
     }
@@ -157,7 +158,7 @@ export default function AdminCLOPage() {
       setMkList((list) => list.filter((m) => m.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(reportAdminError(e, "deleteMatkul"));
     } finally {
       setSaving(false);
     }

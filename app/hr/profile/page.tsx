@@ -10,60 +10,55 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  companyProfile as initialCompanyProfile,
-  hrProfile as initialHrProfile,
-} from "@/lib/hr-mock";
+  updateCompany,
+  updateHrProfile,
+  type Company,
+  type HRProfileWithCompany,
+} from "@/lib/supabase/hr-queries";
+import { hrDataMutators } from "@/lib/supabase/hrDataStore";
+import { reportHrError } from "@/lib/supabase/hrErrors";
 import React, { useState } from "react";
+import { useHRData } from "../HRDataProvider";
 
 const inputCls =
   "w-full bg-surface-container-low rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm text-on-background placeholder:text-outline border border-outline-variant/30";
 const labelCls =
   "font-label text-xs font-medium text-on-surface-variant mb-1 block";
 
-interface SavedFlag {
-  section: string;
-  ts: number;
-}
+const industryOptions = [
+  "E-commerce & Marketplace",
+  "Fintech",
+  "Banking",
+  "Telekomunikasi",
+  "Media & Hiburan",
+  "Pendidikan",
+  "Manufaktur",
+  "Logistik & Transportasi",
+  "Konsultan IT",
+];
+
+const sizeOptions = [
+  "1-10 karyawan",
+  "11-50 karyawan",
+  "51-200 karyawan",
+  "201-500 karyawan",
+  "501-1.000 karyawan",
+  "1.000-5.000 karyawan",
+  "5.000+ karyawan",
+];
 
 export default function HRProfilePage() {
-  const [hr, setHr] = useState({
-    name: initialHrProfile.name,
-    email: initialHrProfile.email,
-    role: initialHrProfile.role,
-  });
-  const [company, setCompany] = useState({
-    name: initialCompanyProfile.name,
-    tagline: initialCompanyProfile.tagline,
-    industry: initialCompanyProfile.industry,
-    location: initialCompanyProfile.location,
-    size: initialCompanyProfile.size,
-    founded: initialCompanyProfile.founded,
-    website: initialCompanyProfile.website,
-    description: initialCompanyProfile.description,
-  });
+  const { hr, company, loading, error } = useHRData();
 
   const [showChangePassword, setShowChangePassword] = useState(false);
-  const [saved, setSaved] = useState<SavedFlag | null>(null);
 
-  const initials = hr.name
-    .split(" ")
-    .map((s) => s[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
-  const handleSaveHR = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaved({ section: "hr", ts: Date.now() });
-    setTimeout(() => setSaved(null), 2500);
-  };
-
-  const handleSaveCompany = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaved({ section: "company", ts: Date.now() });
-    setTimeout(() => setSaved(null), 2500);
-  };
+  if (loading && !hr) {
+    return (
+      <div className="max-w-4xl mx-auto p-10 text-center font-body text-sm text-on-surface-variant">
+        Memuat data...
+      </div>
+    );
+  }
 
   return (
     <>
@@ -73,7 +68,6 @@ export default function HRProfilePage() {
       />
 
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* ─── Header ─── */}
         <div className="space-y-1">
           <h1 className="font-headline text-3xl font-bold text-on-background">
             Profil & Pengaturan
@@ -84,269 +78,29 @@ export default function HRProfilePage() {
           </p>
         </div>
 
-        {/* ─── HR Identity Section ─── */}
-        <section className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
-          <div className="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-primary-fixed rounded-lg flex items-center justify-center">
-                <Icon name="badge" className="text-primary" size={18} />
-              </div>
-              <div>
-                <h2 className="font-headline text-base font-bold text-on-background">
-                  Identitas Saya
-                </h2>
-                <p className="font-label text-xs text-on-surface-variant">
-                  Hanya terlihat oleh tim Anda
-                </p>
-              </div>
-            </div>
-            {saved?.section === "hr" && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 text-green-700 font-label text-xs font-semibold">
-                <Icon name="check_circle" size={14} />
-                Tersimpan
-              </span>
-            )}
+        {error && (
+          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+            {error}
           </div>
+        )}
 
-          <form onSubmit={handleSaveHR} className="p-6 space-y-5">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center shrink-0 shadow-sm">
-                <span className="font-headline text-xl font-bold text-on-primary">
-                  {initials}
-                </span>
-              </div>
-              <div className="flex-1">
-                <p className="font-body text-sm font-bold text-on-background">
-                  {hr.name}
-                </p>
-                <p className="font-label text-xs text-on-surface-variant">
-                  {hr.role}
-                </p>
-                <button
-                  type="button"
-                  className="mt-1.5 inline-flex items-center gap-1 font-label text-xs text-primary hover:underline"
-                >
-                  <Icon name="upload" size={14} />
-                  Ganti foto profil
-                </button>
-              </div>
+        {hr && <HRIdentitySection key={hr.id} hr={hr} />}
+
+        {company ? (
+          <CompanySection key={company.id} company={company} />
+        ) : (
+          <section className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
+            <div className="px-6 py-4 border-b border-outline-variant/30">
+              <h2 className="font-headline text-base font-bold text-on-background">
+                Profil Perusahaan
+              </h2>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Nama Lengkap</label>
-                <input
-                  type="text"
-                  value={hr.name}
-                  onChange={(e) => setHr({ ...hr, name: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Jabatan / Role</label>
-                <input
-                  type="text"
-                  value={hr.role}
-                  onChange={(e) => setHr({ ...hr, role: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className={labelCls}>Email Kerja</label>
-                <input
-                  type="email"
-                  value={hr.email}
-                  onChange={(e) => setHr({ ...hr, email: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
+            <div className="p-6 text-center font-body text-sm text-on-surface-variant">
+              Akun Anda belum ditautkan ke perusahaan. Hubungi superadmin.
             </div>
+          </section>
+        )}
 
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                className="btn-gradient font-label text-sm font-bold rounded-xl px-5 py-2.5 flex items-center gap-2"
-              >
-                <Icon name="save" size={16} />
-                Simpan Perubahan
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {/* ─── Company Profile Section ─── */}
-        <section className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
-          <div className="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-9 h-9 ${initialCompanyProfile.logoBgClass} rounded-lg flex items-center justify-center`}
-              >
-                <Icon
-                  name={initialCompanyProfile.logoIcon}
-                  className={initialCompanyProfile.logoTextClass}
-                  size={18}
-                  filled
-                />
-              </div>
-              <div>
-                <h2 className="font-headline text-base font-bold text-on-background">
-                  Profil Perusahaan
-                </h2>
-                <p className="font-label text-xs text-on-surface-variant">
-                  Ditampilkan publik ke pelamar dan talent pool
-                </p>
-              </div>
-            </div>
-            {saved?.section === "company" && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 text-green-700 font-label text-xs font-semibold">
-                <Icon name="check_circle" size={14} />
-                Tersimpan
-              </span>
-            )}
-          </div>
-
-          <form onSubmit={handleSaveCompany} className="p-6 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Nama Perusahaan</label>
-                <input
-                  type="text"
-                  value={company.name}
-                  onChange={(e) =>
-                    setCompany({ ...company, name: e.target.value })
-                  }
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Tagline</label>
-                <input
-                  type="text"
-                  value={company.tagline}
-                  onChange={(e) =>
-                    setCompany({ ...company, tagline: e.target.value })
-                  }
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Industri</label>
-                <Select
-                  value={company.industry}
-                  onValueChange={(v) => setCompany({ ...company, industry: v })}
-                >
-                  <SelectTrigger className="h-10 w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[
-                      "E-commerce & Marketplace",
-                      "Fintech",
-                      "Banking",
-                      "Telekomunikasi",
-                      "Media & Hiburan",
-                      "Pendidikan",
-                      "Manufaktur",
-                      "Logistik & Transportasi",
-                      "Konsultan IT",
-                    ].map((o) => (
-                      <SelectItem key={o} value={o}>
-                        {o}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className={labelCls}>Lokasi Kantor Pusat</label>
-                <input
-                  type="text"
-                  value={company.location}
-                  onChange={(e) =>
-                    setCompany({ ...company, location: e.target.value })
-                  }
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Ukuran Perusahaan</label>
-                <Select
-                  value={company.size}
-                  onValueChange={(v) => setCompany({ ...company, size: v })}
-                >
-                  <SelectTrigger className="h-10 w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[
-                      "1-10 karyawan",
-                      "11-50 karyawan",
-                      "51-200 karyawan",
-                      "201-500 karyawan",
-                      "501-1.000 karyawan",
-                      "1.000-5.000 karyawan",
-                      "5.000+ karyawan",
-                    ].map((o) => (
-                      <SelectItem key={o} value={o}>
-                        {o}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className={labelCls}>Tahun Berdiri</label>
-                <input
-                  type="text"
-                  value={company.founded}
-                  onChange={(e) =>
-                    setCompany({ ...company, founded: e.target.value })
-                  }
-                  className={inputCls}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className={labelCls}>Website</label>
-                <input
-                  type="text"
-                  value={company.website}
-                  onChange={(e) =>
-                    setCompany({ ...company, website: e.target.value })
-                  }
-                  className={inputCls}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className={labelCls}>Deskripsi Perusahaan</label>
-                <textarea
-                  rows={4}
-                  value={company.description}
-                  onChange={(e) =>
-                    setCompany({ ...company, description: e.target.value })
-                  }
-                  className={`${inputCls} resize-none`}
-                  placeholder="Ceritakan tentang perusahaan Anda..."
-                />
-                <p className="font-label text-xs text-on-surface-variant mt-1">
-                  Deskripsi akan ditampilkan di profil publik perusahaan dan
-                  halaman lowongan.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-1">
-              <button
-                type="submit"
-                className="btn-gradient font-label text-sm font-bold rounded-xl px-5 py-2.5 flex items-center gap-2"
-              >
-                <Icon name="save" size={16} />
-                Simpan Perubahan
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {/* ─── Security Section ─── */}
         <section className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
           <div className="px-6 py-4 border-b border-outline-variant/30 flex items-center gap-3">
             <div className="w-9 h-9 bg-tertiary-fixed rounded-lg flex items-center justify-center">
@@ -399,5 +153,314 @@ export default function HRProfilePage() {
         </section>
       </div>
     </>
+  );
+}
+
+function HRIdentitySection({ hr }: { hr: HRProfileWithCompany }) {
+  const [name, setName] = useState(hr.name ?? "");
+  const [position, setPosition] = useState(hr.position ?? "");
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const initials = (name || hr.name || "HR")
+    .split(/\s+/)
+    .map((s) => s[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setActionError(null);
+    try {
+      const updated = await updateHrProfile(hr.id, {
+        name: name.trim(),
+        position: position.trim() || null,
+      });
+      hrDataMutators.setHr((prev) =>
+        prev ? { ...prev, name: updated.name, position: updated.position } : prev,
+      );
+      const ts = Date.now();
+      setSavedAt(ts);
+      setTimeout(() => setSavedAt((cur) => (cur === ts ? null : cur)), 2500);
+    } catch (err) {
+      setActionError(reportHrError(err, "profile.updateHr"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
+      <div className="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-primary-fixed rounded-lg flex items-center justify-center">
+            <Icon name="badge" className="text-primary" size={18} />
+          </div>
+          <div>
+            <h2 className="font-headline text-base font-bold text-on-background">
+              Identitas Saya
+            </h2>
+            <p className="font-label text-xs text-on-surface-variant">
+              Hanya terlihat oleh tim Anda
+            </p>
+          </div>
+        </div>
+        {savedAt && (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 text-green-700 font-label text-xs font-semibold">
+            <Icon name="check_circle" size={14} />
+            Tersimpan
+          </span>
+        )}
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        {actionError && (
+          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+            {actionError}
+          </div>
+        )}
+
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center shrink-0 shadow-sm">
+            <span className="font-headline text-xl font-bold text-on-primary">
+              {initials}
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-body text-sm font-bold text-on-background truncate">
+              {name || "—"}
+            </p>
+            <p className="font-label text-xs text-on-surface-variant truncate">
+              {position || hr.email || "—"}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Nama Lengkap</label>
+            <input
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Jabatan / Role</label>
+            <input
+              type="text"
+              value={position}
+              onChange={(e) => setPosition(e.target.value)}
+              className={inputCls}
+              placeholder="contoh: Senior Talent Acquisition"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Email Kerja</label>
+            <input
+              type="email"
+              value={hr.email}
+              disabled
+              className={`${inputCls} opacity-70`}
+            />
+            <p className="font-label text-xs text-on-surface-variant mt-1">
+              Email login tidak dapat diubah dari halaman ini.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={saving}
+            className="btn-gradient font-label text-sm font-bold rounded-xl px-5 py-2.5 flex items-center gap-2 disabled:opacity-60"
+          >
+            <Icon name="save" size={16} />
+            {saving ? "Menyimpan..." : "Simpan Perubahan"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function CompanySection({ company }: { company: Company }) {
+  const [name, setName] = useState(company.name ?? "");
+  const [industry, setIndustry] = useState(company.industry ?? "");
+  const [location, setLocation] = useState(company.location ?? "");
+  const [size, setSize] = useState(company.size ?? "");
+  const [founded, setFounded] = useState(company.founded ?? "");
+  const [website, setWebsite] = useState(company.website ?? "");
+  const [description, setDescription] = useState(company.description ?? "");
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setActionError(null);
+    try {
+      const updated = await updateCompany(company.id, {
+        name: name.trim(),
+        industry: industry || null,
+        location: location.trim() || null,
+        size: size || null,
+        founded: founded.trim() || null,
+        website: website.trim() || null,
+        description: description.trim() || null,
+      });
+      hrDataMutators.setCompany(() => updated);
+      const ts = Date.now();
+      setSavedAt(ts);
+      setTimeout(() => setSavedAt((cur) => (cur === ts ? null : cur)), 2500);
+    } catch (err) {
+      setActionError(reportHrError(err, "profile.updateCompany"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
+      <div className="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-primary-fixed rounded-lg flex items-center justify-center">
+            <Icon
+              name={company.logo_icon ?? "storefront"}
+              className="text-primary"
+              size={18}
+              filled
+            />
+          </div>
+          <div>
+            <h2 className="font-headline text-base font-bold text-on-background">
+              Profil Perusahaan
+            </h2>
+            <p className="font-label text-xs text-on-surface-variant">
+              Ditampilkan publik ke pelamar dan talent pool
+            </p>
+          </div>
+        </div>
+        {savedAt && (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 text-green-700 font-label text-xs font-semibold">
+            <Icon name="check_circle" size={14} />
+            Tersimpan
+          </span>
+        )}
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {actionError && (
+          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+            {actionError}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Nama Perusahaan</label>
+            <input
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Industri</label>
+            <Select value={industry || undefined} onValueChange={setIndustry}>
+              <SelectTrigger className="h-10 w-full">
+                <SelectValue placeholder="Pilih industri" />
+              </SelectTrigger>
+              <SelectContent>
+                {industryOptions.map((o) => (
+                  <SelectItem key={o} value={o}>
+                    {o}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className={labelCls}>Lokasi Kantor Pusat</label>
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className={inputCls}
+              placeholder="contoh: Jakarta Selatan, Indonesia"
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Ukuran Perusahaan</label>
+            <Select value={size || undefined} onValueChange={setSize}>
+              <SelectTrigger className="h-10 w-full">
+                <SelectValue placeholder="Pilih ukuran" />
+              </SelectTrigger>
+              <SelectContent>
+                {sizeOptions.map((o) => (
+                  <SelectItem key={o} value={o}>
+                    {o}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className={labelCls}>Tahun Berdiri</label>
+            <input
+              type="text"
+              value={founded}
+              onChange={(e) => setFounded(e.target.value)}
+              className={inputCls}
+              placeholder="contoh: 2009"
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Website</label>
+            <input
+              type="text"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              className={inputCls}
+              placeholder="contoh: tokopedia.com"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Deskripsi Perusahaan</label>
+            <textarea
+              rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className={`${inputCls} resize-none`}
+              placeholder="Ceritakan tentang perusahaan Anda..."
+            />
+            <p className="font-label text-xs text-on-surface-variant mt-1">
+              Deskripsi akan ditampilkan di profil publik perusahaan dan
+              halaman lowongan.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-1">
+          <button
+            type="submit"
+            disabled={saving}
+            className="btn-gradient font-label text-sm font-bold rounded-xl px-5 py-2.5 flex items-center gap-2 disabled:opacity-60"
+          >
+            <Icon name="save" size={16} />
+            {saving ? "Menyimpan..." : "Simpan Perubahan"}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }

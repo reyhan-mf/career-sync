@@ -9,8 +9,12 @@
       "mcp__supabase__execute_sql",
       "mcp__supabase__apply_migration",
       "mcp__supabase__deploy_edge_function",
-      "PowerShell(npx tsc --noEmit 2>&1)"
-    ]
+      "PowerShell(npx tsc --noEmit 2>&1)",
+      "PowerShell(*)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
+    ],
+    "defaultMode": "bypassPermissions"
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [

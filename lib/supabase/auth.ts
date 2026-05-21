@@ -1,5 +1,7 @@
 import { supabase } from "./client";
 import { ensureAdminDataInitialized } from "./adminDataStore";
+import { ensureHrDataInitialized } from "./hrDataStore";
+import { ensureStudentDataInitialized } from "./studentDataStore";
 import { ensureSuperadminDataInitialized } from "./superadminDataStore";
 
 export type UserRole = "student" | "admin" | "hr" | "superadmin";
@@ -90,6 +92,10 @@ export async function signInAndResolveRole(
     ensureAdminDataInitialized().catch(() => {});
   } else if (role === "superadmin") {
     ensureSuperadminDataInitialized().catch(() => {});
+  } else if (role === "student") {
+    ensureStudentDataInitialized().catch(() => {});
+  } else if (role === "hr") {
+    ensureHrDataInitialized().catch(() => {});
   }
   return { role, redirectTo: roleDashboard[role] };
 }

@@ -15,6 +15,7 @@ import {
   updateStudent,
   type Student,
 } from "@/lib/supabase/admin-queries";
+import { reportAdminError } from "@/lib/supabase/adminErrors";
 import { useAdminData } from "../AdminDataProvider";
 import React, { useState } from "react";
 
@@ -142,7 +143,7 @@ export default function UsersPage() {
       }
       closeModal();
     } catch (e) {
-      setError((e as Error).message);
+      setError(reportAdminError(e, editingId ? "updateStudent" : "createStudent"));
     } finally {
       setSaving(false);
     }
@@ -156,7 +157,7 @@ export default function UsersPage() {
       setUserList((list) => list.filter((u) => u.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(reportAdminError(e, "deleteStudent"));
     } finally {
       setSaving(false);
     }
