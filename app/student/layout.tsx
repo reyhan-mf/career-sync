@@ -12,6 +12,7 @@ const studentNav: NavItem[] = [
   { label: "Dashboard", icon: "dashboard", href: "/student/dashboard" },
   { label: "Job Matching", icon: "work", href: "/student/job-matching" },
   { label: "Lamaran Saya", icon: "description", href: "/student/applications" },
+  { label: "Undangan", icon: "forward_to_inbox", href: "/student/invitations" },
   { label: "Profil Kompetensi", icon: "person", href: "/student/profile" },
 ];
 

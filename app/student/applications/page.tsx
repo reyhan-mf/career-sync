@@ -1,6 +1,7 @@
 "use client";
 
 import Icon from "@/components/ui/Icon";
+import Link from "next/link";
 import {
   Table,
   TableBody,
@@ -161,9 +162,19 @@ export default function ApplicationsPage() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <button className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors">
-                        <Icon name="visibility" size={18} />
-                      </button>
+                      {app.job_id ? (
+                        <Link
+                          href={`/student/jobs/${app.job_id}`}
+                          aria-label="Lihat detail lowongan"
+                          className="inline-flex p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors"
+                        >
+                          <Icon name="visibility" size={18} />
+                        </Link>
+                      ) : (
+                        <span className="inline-flex p-2 text-outline">
+                          <Icon name="visibility_off" size={18} />
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

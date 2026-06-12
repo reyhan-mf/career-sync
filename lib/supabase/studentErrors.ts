@@ -100,7 +100,6 @@ export function formatStudentError(err: unknown): FriendlyError {
 export function reportStudentError(err: unknown, context: string): string {
   const f = formatStudentError(err);
   if (typeof window !== "undefined") {
-    // eslint-disable-next-line no-console
     console.error(`[${f.code}] ${context}:`, f.raw);
   }
   return `${f.message} (Kode Error: ${f.code})`;

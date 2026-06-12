@@ -173,7 +173,6 @@ export function formatAdminError(err: unknown): FriendlyError {
 export function reportAdminError(err: unknown, context: string): string {
   const f = formatAdminError(err);
   if (typeof window !== "undefined") {
-    // eslint-disable-next-line no-console
     console.error(`[${f.code}] ${context}:`, f.raw);
   }
   // Format keeps the friendly explanation first, then a clearly labelled

@@ -6,13 +6,23 @@ import { useParams } from "next/navigation";
 import Icon from "@/components/ui/Icon";
 import TopBar from "@/components/layout/TopBar";
 import {
+  applyToJob,
   getJobById,
   getJobMatchBreakdown,
   type JobDetail,
   type ReqMatchBreakdown,
 } from "@/lib/supabase/student-queries";
 import { useStudentData } from "@/app/student/StudentDataProvider";
+import { studentDataMutators } from "@/lib/supabase/studentDataStore";
 import { reportStudentError } from "@/lib/supabase/studentErrors";
+
+const APPLY_STATUS_LABEL: Record<string, string> = {
+  new: "Lamaran Terkirim",
+  reviewed: "Sedang Ditinjau",
+  interview: "Tahap Interview",
+  accepted: "Diterima",
+  rejected: "Ditolak",
+};
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -75,9 +85,11 @@ function ScoreRing({ score }: { score: number | null }) {
 
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
-  const { profile, matchScores } = useStudentData();
+  const { profile, matchScores, applications } = useStudentData();
   const studentId = profile?.student.id ?? null;
   const [activeTab, setActiveTab] = useState<"overview" | "analysis">("overview");
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   // Single load-state object so the loading effect never has to call setState
   // synchronously in its body (which triggers cascading renders).
   const [loadState, setLoadState] = useState<{
@@ -151,6 +163,26 @@ export default function JobDetailPage() {
     for (const r of breakdown) m.set(r.requirement_id, r);
     return m;
   }, [breakdown]);
+
+  // Has this student already applied to this job? Drives the apply button.
+  const existingApplication = useMemo(
+    () => applications.find((a) => a.job_id === params?.id) ?? null,
+    [applications, params?.id],
+  );
+
+  async function handleApply() {
+    if (!studentId || !params?.id || applying || existingApplication) return;
+    setApplying(true);
+    setApplyError(null);
+    try {
+      const app = await applyToJob(studentId, params.id, overallScore);
+      studentDataMutators.addApplication(app);
+    } catch (e) {
+      setApplyError(reportStudentError(e, "jobs.detail.apply"));
+    } finally {
+      setApplying(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -246,11 +278,35 @@ export default function JobDetailPage() {
               </div>
             </div>
 
-            <div className="flex flex-col items-center gap-4 shrink-0">
+            <div className="flex flex-col items-center gap-2 shrink-0">
               <ScoreRing score={overallScore} />
-              <button className="btn-gradient rounded-xl px-8 py-3 font-label font-bold shadow-[0_4px_14px_rgb(9,76,178,0.25)] flex items-center gap-2 whitespace-nowrap">
-                <Icon name="send" size={18} /> Lamar Sekarang
-              </button>
+              {existingApplication ? (
+                <div className="flex flex-col items-center gap-1">
+                  <span className="inline-flex items-center gap-2 rounded-xl px-6 py-3 font-label font-bold bg-green-50 text-green-700 whitespace-nowrap">
+                    <Icon name="check_circle" size={18} />
+                    {APPLY_STATUS_LABEL[existingApplication.status] ?? "Sudah Dilamar"}
+                  </span>
+                  <Link
+                    href="/student/applications"
+                    className="font-label text-xs text-primary hover:underline"
+                  >
+                    Lihat status lamaran
+                  </Link>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  disabled={applying || !studentId || job.status !== "active"}
+                  className="btn-gradient rounded-xl px-8 py-3 font-label font-bold shadow-[0_4px_14px_rgb(9,76,178,0.25)] flex items-center gap-2 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <Icon name={applying ? "progress_activity" : "send"} size={18} className={applying ? "animate-spin" : ""} />
+                  {applying ? "Mengirim…" : job.status !== "active" ? "Lowongan Ditutup" : "Lamar Sekarang"}
+                </button>
+              )}
+              {applyError && (
+                <p className="font-label text-xs text-error max-w-[12rem] text-center">{applyError}</p>
+              )}
             </div>
           </div>
         </div>

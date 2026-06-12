@@ -65,10 +65,10 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
   const exactMatch = options.some((o) => o.name.toLowerCase() === q.toLowerCase());
   const canCreate = q.length > 0 && !exactMatch;
   const totalItems = filtered.length + (canCreate ? 1 : 0);
-
-  useEffect(() => {
-    if (highlight >= totalItems) setHighlight(Math.max(0, totalItems - 1));
-  }, [highlight, totalItems]);
+  // Clamp during render instead of in an effect: when filtering shrinks the
+  // list, the stored highlight may point past the end. Deriving the active
+  // index avoids a setState-in-effect cascading render.
+  const activeIndex = highlight >= totalItems ? Math.max(0, totalItems - 1) : highlight;
 
   const commitSelect = (prodi: Prodi) => {
     onSelect(prodi);
@@ -92,7 +92,7 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
       setHighlight((h) => Math.max(0, h - 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (highlight < filtered.length) commitSelect(filtered[highlight]);
+      if (activeIndex < filtered.length) commitSelect(filtered[activeIndex]);
       else if (canCreate) await commitCreate();
     } else if (e.key === "Escape") {
       setOpen(false);
@@ -127,7 +127,7 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
             <p className="px-3 py-3 font-body text-sm text-on-surface-variant text-center">Tidak ada hasil.</p>
           )}
           {filtered.map((opt, idx) => {
-            const isHi = idx === highlight;
+            const isHi = idx === activeIndex;
             const isSel = opt.name === value;
             const cls = isSel ? "bg-primary-fixed-dim text-primary font-semibold" : isHi ? "bg-surface-container text-on-background" : "text-on-background";
             return (
@@ -141,7 +141,7 @@ function ProdiCombobox({ value, options, onSelect, onCreate, placeholder }: Prod
           {canCreate && (
             <button type="button" onMouseEnter={() => setHighlight(filtered.length)}
               onMouseDown={(e) => e.preventDefault()} onClick={commitCreate}
-              className={`w-full text-left px-3 py-2 font-body text-sm flex items-center gap-2 border-t border-outline-variant/30 ${highlight === filtered.length ? "bg-primary/10" : ""} text-primary font-semibold`}>
+              className={`w-full text-left px-3 py-2 font-body text-sm flex items-center gap-2 border-t border-outline-variant/30 ${activeIndex === filtered.length ? "bg-primary/10" : ""} text-primary font-semibold`}>
               <Icon name="add" size={16} />
               <span className="truncate">Tambah prodi baru: &ldquo;{q}&rdquo;</span>
             </button>

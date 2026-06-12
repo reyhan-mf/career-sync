@@ -3,7 +3,7 @@
 import Icon from "@/components/ui/Icon";
 import { type JobStatus, type JobWithSkills } from "@/lib/supabase/hr-queries";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useHRData } from "../../HRDataProvider";
 
 const jobStatusLabel: Record<JobStatus, string> = {
@@ -33,7 +33,6 @@ function formatDate(iso: string | null): string {
 
 export default function HRJobDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const { jobs, applications, loading } = useHRData();
 
   const job: JobWithSkills | undefined = jobs.find((j) => j.id === params.id);

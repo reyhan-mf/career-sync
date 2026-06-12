@@ -95,12 +95,13 @@ export async function getCurrentHrProfile(): Promise<HRProfileWithCompany> {
 
   // 1. Fetch the HR profile row separately so a missing/forbidden companies
   //    row never masks a perfectly-fine hr_profiles row.
-  let { data: hrRow, error: hrErr } = await supabase
+  const { data: initialHrRow, error: hrErr } = await supabase
     .from("hr_profiles")
     .select("id, user_id, name, position, company_id")
     .eq("user_id", session.user.id)
     .maybeSingle();
   if (hrErr) throw hrErr;
+  let hrRow = initialHrRow;
 
   // Self-heal: an authenticated user with role=hr but no profile row gets one
   // auto-provisioned. Name is taken from auth metadata; company_id stays NULL
@@ -135,7 +136,6 @@ export async function getCurrentHrProfile(): Promise<HRProfileWithCompany> {
       .maybeSingle();
     if (companyErr) {
       // Surface as soft warning — the dashboard can still load without it.
-      // eslint-disable-next-line no-console
       console.warn("[HR] Gagal memuat data companies:", companyErr);
     } else {
       company = (companyRow ?? null) as Company | null;

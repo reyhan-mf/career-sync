@@ -204,6 +204,40 @@ export async function getMyApplications(studentId: string): Promise<StudentAppli
   return (data ?? []) as unknown as StudentApplication[];
 }
 
+/**
+ * Submit an application for a job. `matchScore` is the same grade-weighted
+ * score shown in the UI (from `student_job_matches`); it is stored on the row
+ * so HR sees the candidate's fit at apply time.
+ *
+ * A unique (student_id, job_id) constraint makes re-applying raise a Postgres
+ * 23505. We translate that into a friendly Indonesian message so the caller can
+ * surface "already applied" without special-casing the error code everywhere.
+ */
+export async function applyToJob(
+  studentId: string,
+  jobId: string,
+  matchScore: number | null,
+): Promise<StudentApplication> {
+  const { data, error } = await supabase
+    .from("applications")
+    .insert({
+      student_id: studentId,
+      job_id: jobId,
+      match_score: matchScore,
+      status: "new",
+      applied_at: new Date().toISOString(),
+    })
+    .select(`id, job_id, match_score, status, applied_at, jobs ( title, company_id )`)
+    .single();
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error("Anda sudah melamar lowongan ini.");
+    }
+    throw error;
+  }
+  return data as unknown as StudentApplication;
+}
+
 // ─── Single job detail (for /student/jobs/[id]) ────────────────────────────
 
 export interface JobDetail {
