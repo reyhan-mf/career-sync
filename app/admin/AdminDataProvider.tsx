@@ -3,7 +3,6 @@
 import { useSyncExternalStore, type ReactNode } from "react";
 import {
   adminDataMutators,
-  ensureAdminDataInitialized,
   getAdminDataSnapshot,
   subscribeAdminData,
   type AdminDataState,
@@ -16,9 +15,9 @@ interface AdminDataContextValue extends AdminDataState {
   setClos: (updater: (prev: CLO[]) => CLO[]) => void;
 }
 
-if (typeof window !== "undefined") {
-  ensureAdminDataInitialized().catch(() => {});
-}
+// Initialization is driven by the auth listener in adminDataStore
+// (INITIAL_SESSION on load, SIGNED_IN on login). No eager call here — that
+// previously raced against an unresolved session.
 
 export function AdminDataProvider({ children }: { children: ReactNode }) {
   useSyncExternalStore(subscribeAdminData, getAdminDataSnapshot, getAdminDataSnapshot);

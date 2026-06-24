@@ -83,6 +83,66 @@ function ScoreRing({ score }: { score: number | null }) {
   );
 }
 
+// Skeleton placeholder shown while the job detail loads. Mirrors the real
+// layout (header card + tabs + overview grid) so the page doesn't jump.
+function Sk({ className }: { className?: string }) {
+  return <div className={`animate-pulse bg-surface-container rounded-md ${className ?? ""}`} />;
+}
+
+function JobDetailSkeleton() {
+  return (
+    <div className="max-w-5xl mx-auto p-6 lg:p-10 space-y-8">
+      <Sk className="h-5 w-40" />
+      <div className="bg-surface-container-lowest rounded-2xl p-8 shadow-ambient ghost-border">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <Sk className="w-14 h-14 rounded-xl shrink-0" />
+            <div className="space-y-2">
+              <Sk className="h-7 w-56" />
+              <Sk className="h-4 w-36" />
+              <div className="flex flex-wrap gap-2 mt-2">
+                <Sk className="h-6 w-24 rounded-full" />
+                <Sk className="h-6 w-20 rounded-full" />
+                <Sk className="h-6 w-28 rounded-full" />
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col items-center gap-3 shrink-0">
+            <Sk className="w-28 h-28 rounded-full" />
+            <Sk className="h-12 w-40 rounded-xl" />
+          </div>
+        </div>
+      </div>
+      <Sk className="h-11 w-72 rounded-xl" />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border space-y-3">
+            <Sk className="h-6 w-32" />
+            <Sk className="h-4 w-full" />
+            <Sk className="h-4 w-full" />
+            <Sk className="h-4 w-2/3" />
+          </div>
+          <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border space-y-4">
+            <Sk className="h-6 w-48" />
+            <div className="flex flex-wrap gap-2">
+              <Sk className="h-7 w-20 rounded-full" />
+              <Sk className="h-7 w-24 rounded-full" />
+              <Sk className="h-7 w-16 rounded-full" />
+            </div>
+          </div>
+        </div>
+        <div className="space-y-6">
+          <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border space-y-3">
+            <Sk className="h-5 w-28" />
+            <Sk className="h-4 w-40" />
+            <Sk className="h-4 w-32" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
   const { profile, matchScores, applications } = useStudentData();
@@ -141,14 +201,26 @@ export default function JobDetailPage() {
     };
   }, [params?.id, studentId]);
 
-  // Overall match score: prefer the value already in the store (same RPC as the
-  // job list), fall back to averaging the breakdown contributions.
-  const overallScore: number | null = useMemo(() => {
-    if (params?.id && matchScores[params.id] != null) return matchScores[params.id];
+  // Score averaged from the freshly-fetched per-requirement breakdown. This is
+  // the live, authoritative value for this job.
+  const breakdownScore: number | null = useMemo(() => {
     if (breakdown.length === 0) return null;
     const sum = breakdown.reduce((s, r) => s + r.contribution, 0);
     return Math.round(sum / breakdown.length);
-  }, [params?.id, matchScores, breakdown]);
+  }, [breakdown]);
+
+  // Overall match score: prefer the live breakdown; fall back to the value in
+  // the store (same RPC as the job list) while the breakdown is still loading.
+  const overallScore: number | null =
+    breakdownScore ?? (params?.id ? matchScores[params.id] ?? null : null);
+
+  // Keep the job-matching list badge in sync with the live score, so the table
+  // never shows a stale value that disagrees with this page.
+  useEffect(() => {
+    if (params?.id && breakdownScore != null) {
+      studentDataMutators.setMatchScore(params.id, breakdownScore);
+    }
+  }, [params?.id, breakdownScore]);
 
   // Top contributing competencies, for the overview summary card.
   const topMatches = useMemo(
@@ -188,9 +260,7 @@ export default function JobDetailPage() {
     return (
       <>
         <TopBar />
-        <div className="max-w-5xl mx-auto p-6 lg:p-10">
-          <p className="font-body text-sm text-on-surface-variant">Memuat detail lowongan…</p>
-        </div>
+        <JobDetailSkeleton />
       </>
     );
   }

@@ -10,8 +10,10 @@ function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  // Dev/demo HR credentials prefilled so testing doesn't require retyping.
+  // Safe to clear before going to production.
+  const [email, setEmail] = useState("alisya@crht.com");
+  const [password, setPassword] = useState("123123123");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(() => searchParams.get("error"));
 

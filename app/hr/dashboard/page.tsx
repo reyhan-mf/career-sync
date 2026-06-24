@@ -8,7 +8,7 @@ import {
   matchColorClass,
   type ApplicantStatus,
 } from "@/lib/hr-mock";
-import { bestMatchJob } from "@/lib/hr-match";
+import { bestMatchJob, gradesByCloId, rbcByJobId } from "@/lib/hr-match";
 import type { TalentCLOGrade } from "@/lib/supabase/hr-queries";
 import Link from "next/link";
 import React, { useMemo } from "react";
@@ -25,7 +25,7 @@ function formatDate(iso: string | null | undefined): string {
 
 export default function HRDashboard() {
   const data = useHRData();
-  const { hr, company, jobs, applications, talents, talentGrades, invitations, loading, error } = data;
+  const { hr, company, jobs, applications, talents, talentGrades, reqBestClos, invitations, loading, error } = data;
 
   const gradesByStudent = useMemo(() => {
     const map = new Map<string, TalentCLOGrade[]>();
@@ -54,6 +54,9 @@ export default function HRDashboard() {
     [jobs],
   );
 
+  // requirement→best-CLO rows grouped by job — inputs for the match score.
+  const rbcByJob = useMemo(() => rbcByJobId(reqBestClos), [reqBestClos]);
+
   const applicantCountByJob = useMemo(() => {
     const map = new Map<string, number>();
     applications.forEach((a) => {
@@ -79,7 +82,7 @@ export default function HRDashboard() {
       .filter((t) => !invitedIds.has(t.id))
       .map((t) => {
         const grades = gradesByStudent.get(t.id) ?? [];
-        const best = bestMatchJob(grades, activeJobs);
+        const best = bestMatchJob(gradesByCloId(grades), activeJobs, rbcByJob);
         return {
           talent: t,
           job: best?.job ?? null,
@@ -89,7 +92,7 @@ export default function HRDashboard() {
       .filter((row) => row.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 4);
-  }, [talents, gradesByStudent, activeJobs, invitedIds]);
+  }, [talents, gradesByStudent, activeJobs, rbcByJob, invitedIds]);
 
   const companyDisplay = {
     name: company?.name ?? "Perusahaan Anda",
@@ -234,7 +237,7 @@ export default function HRDashboard() {
             {recentApplicants.map((a) => {
               const match =
                 a.match_score !== null && a.match_score !== undefined
-                  ? Math.round((a.match_score ?? 0) * 100)
+                  ? Math.round(a.match_score ?? 0)
                   : null;
               return (
                 <div

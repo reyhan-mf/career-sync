@@ -1,63 +1,72 @@
 // Match scoring + display helpers for HR pages.
 //
-// Grades are stored as integers 0-100 (per-CLO). Match between a student and a
-// job is the weighted average of the student's grades on CLOs whose
-// `clo_text` overlaps any of the job's skill/requirement keywords.
+// IMPORTANT: the HR-side score MUST equal what the student sees on their own
+// pages, otherwise the same (student, job) pair shows two different numbers.
+// The student score comes from the Postgres RPC `student_job_matches`:
+//
+//   round( avg( sim * grade / 100 ) * 100 )   over a job's requirements
+//
+// where `sim` is each requirement's cosine similarity to its nearest CLO
+// (the req_best_clo table) and `grade` is the student's 0-100 grade on that CLO
+// (a missing grade counts as 0). We reproduce that exact formula here from the
+// same req_best_clo rows + grades, so the talent pool / dashboard never diverge
+// from the student job pages.
 
-import type { JobWithSkills, TalentCLOGrade } from "@/lib/supabase/hr-queries";
+import type {
+  JobWithSkills,
+  ReqBestCloRow,
+  TalentCLOGrade,
+} from "@/lib/supabase/hr-queries";
 
-// Average score across all graded CLOs, on a 0-100 scale.
-export function studentBaseScore(grades: TalentCLOGrade[]): number {
-  const nums = grades
-    .map((g) => g.grade)
-    .filter((n): n is number => typeof n === "number");
-  if (nums.length === 0) return 0;
-  const avg = nums.reduce((s, n) => s + n, 0) / nums.length;
-  return Math.round(avg);
-}
-
-function keywordsFromJob(job: JobWithSkills): string[] {
-  const out = new Set<string>();
-  job.job_skills.forEach((s) => out.add(s.skill.toLowerCase()));
-  job.requirements.forEach((r) => {
-    r.req_text
-      .toLowerCase()
-      .split(/[^a-z0-9+#.]+/)
-      .filter((w) => w.length >= 3)
-      .forEach((w) => out.add(w));
-  });
-  return [...out];
-}
-
-// Score for a single (student, job) pair, 0-100. Heuristic: weighted grade
-// avg on CLOs whose text mentions any job keyword, falling back to the
-// student's overall base score when no CLO overlaps.
-export function matchScore(grades: TalentCLOGrade[], job: JobWithSkills): number {
-  const kws = keywordsFromJob(job);
-  if (kws.length === 0) return studentBaseScore(grades);
-
-  const relevant: number[] = [];
+// cloId -> grade (0-100) for one student. Non-numeric grades are omitted and
+// treated as 0 by the scorer.
+export function gradesByCloId(grades: TalentCLOGrade[]): Map<string, number> {
+  const m = new Map<string, number>();
   for (const g of grades) {
-    const text = (g.clos?.clo_text ?? "").toLowerCase();
-    if (!text) continue;
-    if (kws.some((k) => text.includes(k))) {
-      if (typeof g.grade === "number") relevant.push(g.grade);
-    }
+    if (typeof g.grade === "number") m.set(g.clo_id, g.grade);
   }
-  if (relevant.length === 0) return Math.max(0, studentBaseScore(grades) - 15);
-  const avg = relevant.reduce((s, n) => s + n, 0) / relevant.length;
-  return Math.round(avg);
+  return m;
 }
 
-// Find a student's best-matching job from a list. Returns null if no jobs.
+// requirement→best-CLO rows grouped by job id.
+export function rbcByJobId(rows: ReqBestCloRow[]): Map<string, ReqBestCloRow[]> {
+  const m = new Map<string, ReqBestCloRow[]>();
+  for (const r of rows) {
+    const list = m.get(r.job_id) ?? [];
+    list.push(r);
+    m.set(r.job_id, list);
+  }
+  return m;
+}
+
+// Score for one (student, job) pair, 0-100 — identical to the student-side
+// `student_job_matches` RPC. Returns null when the job has no embedded
+// requirements (no req_best_clo rows), mirroring the student list where such a
+// job simply has no score yet.
+export function matchScoreFromRbc(
+  gradeByClo: Map<string, number>,
+  rbcRows: ReqBestCloRow[],
+): number | null {
+  if (rbcRows.length === 0) return null;
+  let sum = 0;
+  for (const r of rbcRows) {
+    const grade = r.best_clo_id ? gradeByClo.get(r.best_clo_id) ?? 0 : 0;
+    sum += r.sim * (grade / 100);
+  }
+  return Math.round((sum / rbcRows.length) * 100);
+}
+
+// Find a student's best-matching job from `jobs`, using the same per-pair score
+// as the student side. Returns null when no job yields a score.
 export function bestMatchJob(
-  grades: TalentCLOGrade[],
+  gradeByClo: Map<string, number>,
   jobs: JobWithSkills[],
+  rbcByJob: Map<string, ReqBestCloRow[]>,
 ): { job: JobWithSkills; score: number } | null {
-  if (jobs.length === 0) return null;
   let best: { job: JobWithSkills; score: number } | null = null;
   for (const j of jobs) {
-    const score = matchScore(grades, j);
+    const score = matchScoreFromRbc(gradeByClo, rbcByJob.get(j.id) ?? []);
+    if (score == null) continue;
     if (!best || score > best.score) best = { job: j, score };
   }
   return best;

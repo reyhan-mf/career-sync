@@ -39,7 +39,7 @@ function formatDate(iso: string | null): string {
 }
 
 export default function ApplicationsPage() {
-  const { applications, loading, error, profile } = useStudentData();
+  const { applications, loading, error, profile, matchScores } = useStudentData();
   const [filter, setFilter] = useState("all");
 
   const filteredApps = filter === "all"
@@ -138,6 +138,14 @@ export default function ApplicationsPage() {
                   cls: "bg-surface-container text-on-surface-variant",
                   icon: "help",
                 };
+                // Prefer the live match score (same source as Job Matching);
+                // fall back to the value stored at apply time for jobs no longer
+                // active. Older rows saved before scoring worked have a null
+                // stored value, so the live score is what keeps this accurate.
+                const score =
+                  app.job_id && matchScores[app.job_id] != null
+                    ? matchScores[app.job_id]
+                    : app.match_score;
                 return (
                   <TableRow key={app.id}>
                     <TableCell>
@@ -147,7 +155,7 @@ export default function ApplicationsPage() {
                     </TableCell>
                     <TableCell>
                       <span className="font-label text-sm font-bold text-primary">
-                        {app.match_score ?? 0}%
+                        {score != null ? `${score}%` : "—"}
                       </span>
                     </TableCell>
                     <TableCell>

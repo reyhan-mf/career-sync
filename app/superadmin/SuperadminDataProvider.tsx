@@ -2,7 +2,6 @@
 
 import { useSyncExternalStore, type ReactNode } from "react";
 import {
-  ensureSuperadminDataInitialized,
   getSuperadminDataSnapshot,
   subscribeSuperadminData,
   superadminDataMutators,
@@ -18,11 +17,9 @@ interface SuperadminDataContextValue extends SuperadminDataState {
   setProdis: (updater: (prev: Prodi[]) => Prodi[]) => void;
 }
 
-// Fire init at module-load so a hard refresh straight onto /superadmin/* also
-// kicks off the fetch immediately, before any provider mounts.
-if (typeof window !== "undefined") {
-  ensureSuperadminDataInitialized().catch(() => {});
-}
+// Initialization is driven by the auth listener in superadminDataStore
+// (INITIAL_SESSION on load, SIGNED_IN on login). No eager call here — that
+// previously raced against an unresolved session.
 
 export function SuperadminDataProvider({ children }: { children: ReactNode }) {
   useSyncExternalStore(

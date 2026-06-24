@@ -2,15 +2,14 @@
 
 import { useSyncExternalStore, type ReactNode } from "react";
 import {
-  ensureHrDataInitialized,
   getHrDataSnapshot,
   subscribeHrData,
   type HRDataState,
 } from "@/lib/supabase/hrDataStore";
 
-if (typeof window !== "undefined") {
-  ensureHrDataInitialized().catch(() => {});
-}
+// Initialization is driven entirely by the auth listener in hrDataStore
+// (INITIAL_SESSION on load, SIGNED_IN on login). No eager call here — that
+// previously raced against an unresolved session.
 
 export function HRDataProvider({ children }: { children: ReactNode }) {
   useSyncExternalStore(subscribeHrData, getHrDataSnapshot, getHrDataSnapshot);

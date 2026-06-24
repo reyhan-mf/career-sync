@@ -391,6 +391,17 @@ export interface TalentCLOGrade {
   clos: { clo_code: string | null; clo_text: string; matkul_id: string } | null;
 }
 
+// One row of the req_best_clo table: a job requirement mapped to its nearest
+// CLO + cosine similarity. These are the exact inputs the student-side score RPC
+// (`student_job_matches`) uses, so the HR pages can reproduce the identical
+// score client-side (see lib/hr-match.ts) instead of a divergent heuristic.
+export interface ReqBestCloRow {
+  requirement_id: string;
+  job_id: string;
+  best_clo_id: string | null;
+  sim: number;
+}
+
 export async function getTalentStudents(): Promise<TalentStudent[]> {
   const { data, error } = await supabase
     .from("students")
@@ -409,6 +420,24 @@ export async function getTalentGrades(studentIds: string[]): Promise<TalentCLOGr
     .in("student_id", studentIds);
   if (error) throw error;
   return (data ?? []) as unknown as TalentCLOGrade[];
+}
+
+// req_best_clo rows for the given jobs. `sim` is stored as numeric, which
+// PostgREST may serialize as a string — coerce to number so the scorer can do
+// arithmetic on it. Returns [] for an empty job list.
+export async function getReqBestClos(jobIds: string[]): Promise<ReqBestCloRow[]> {
+  if (jobIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("req_best_clo")
+    .select("requirement_id, job_id, best_clo_id, sim")
+    .in("job_id", jobIds);
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    requirement_id: r.requirement_id as string,
+    job_id: r.job_id as string,
+    best_clo_id: (r.best_clo_id ?? null) as string | null,
+    sim: typeof r.sim === "number" ? r.sim : Number(r.sim),
+  }));
 }
 
 export async function getProdiNames(): Promise<Record<string, string>> {

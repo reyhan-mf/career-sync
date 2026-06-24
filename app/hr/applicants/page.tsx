@@ -12,11 +12,13 @@ import {
   updateApplicationStatus,
   type ApplicationStatus,
   type ApplicationWithDetails,
+  type TalentCLOGrade,
 } from "@/lib/supabase/hr-queries";
 import { hrDataMutators } from "@/lib/supabase/hrDataStore";
 import { reportHrError } from "@/lib/supabase/hrErrors";
+import { gradesByCloId, matchScoreFromRbc, rbcByJobId } from "@/lib/hr-match";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { useHRData } from "../HRDataProvider";
 
 const statusLabel: Record<ApplicationStatus, string> = {
@@ -47,7 +49,8 @@ function ApplicantsContent() {
   const searchParams = useSearchParams();
   const initialJobFilter = searchParams.get("job") ?? "all";
 
-  const { jobs, applications, prodiNames, loading, error } = useHRData();
+  const { jobs, applications, prodiNames, talentGrades, reqBestClos, loading, error } =
+    useHRData();
 
   const [search, setSearch] = useState("");
   const [jobFilter, setJobFilter] = useState<string>(initialJobFilter);
@@ -55,6 +58,35 @@ function ApplicantsContent() {
   const [selected, setSelected] = useState<ApplicationWithDetails | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Live match score, reproducing the exact student-side value from grades +
+  // req_best_clo (see lib/hr-match.ts). The stored applications.match_score is
+  // only a snapshot from apply time and is null for older rows, so we prefer the
+  // live score and fall back to the snapshot for jobs no longer scoreable.
+  const rbcByJob = useMemo(() => rbcByJobId(reqBestClos), [reqBestClos]);
+  const gradesByStudent = useMemo(() => {
+    const m = new Map<string, TalentCLOGrade[]>();
+    for (const g of talentGrades) {
+      const list = m.get(g.student_id) ?? [];
+      list.push(g);
+      m.set(g.student_id, list);
+    }
+    return m;
+  }, [talentGrades]);
+  const scoreFor = useCallback(
+    (app: ApplicationWithDetails): number | null => {
+      const sid = app.students?.id;
+      const grades = sid ? gradesByStudent.get(sid) ?? [] : [];
+      const live = matchScoreFromRbc(
+        gradesByCloId(grades),
+        rbcByJob.get(app.job_id ?? "") ?? [],
+      );
+      if (live != null) return live;
+      return app.match_score != null ? Math.round(app.match_score) : null;
+    },
+    [gradesByStudent, rbcByJob],
+  );
+  const selectedScore = selected ? scoreFor(selected) : null;
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -157,13 +189,13 @@ function ApplicantsContent() {
                     {selected.jobs?.title ?? "—"}
                   </span>
                 </div>
-                {selected.match_score !== null && selected.match_score !== undefined && (
+                {selectedScore != null && (
                   <div className="flex justify-between">
                     <span className="font-label text-sm text-on-surface-variant">
                       Match Score
                     </span>
                     <span className="font-label text-sm font-bold text-primary">
-                      {Math.round((selected.match_score ?? 0) * 100)}%
+                      {selectedScore}%
                     </span>
                   </div>
                 )}
@@ -316,7 +348,9 @@ function ApplicantsContent() {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((a) => (
+                  filtered.map((a) => {
+                    const score = scoreFor(a);
+                    return (
                     <tr
                       key={a.id}
                       className="hover:bg-surface-container-low transition-colors border-t border-surface-variant"
@@ -340,9 +374,9 @@ function ApplicantsContent() {
                         {a.jobs?.title ?? "—"}
                       </td>
                       <td className="px-6 py-4">
-                        {a.match_score !== null && a.match_score !== undefined ? (
+                        {score != null ? (
                           <span className="font-label text-sm font-bold text-primary">
-                            {Math.round((a.match_score ?? 0) * 100)}%
+                            {score}%
                           </span>
                         ) : (
                           <span className="font-label text-xs text-on-surface-variant">—</span>
@@ -370,7 +404,8 @@ function ApplicantsContent() {
                         </button>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
                 {!loading && filtered.length === 0 && (
                   <tr className="border-t border-surface-variant">

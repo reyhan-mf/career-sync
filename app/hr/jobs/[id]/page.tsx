@@ -31,6 +31,10 @@ function formatDate(iso: string | null): string {
   });
 }
 
+function Sk({ className }: { className?: string }) {
+  return <div className={`animate-pulse bg-surface-container rounded-md ${className ?? ""}`} />;
+}
+
 export default function HRJobDetailPage() {
   const params = useParams<{ id: string }>();
   const { jobs, applications, loading } = useHRData();
@@ -40,8 +44,31 @@ export default function HRJobDetailPage() {
 
   if (loading && !job) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <p className="font-body text-sm text-on-surface-variant">Memuat data…</p>
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center justify-between gap-4">
+          <Sk className="h-5 w-48" />
+          <Sk className="h-9 w-24 rounded-lg" />
+        </div>
+        <div className="bg-surface-container-lowest rounded-2xl p-8 shadow-ambient ghost-border space-y-4">
+          <div className="flex items-center gap-4">
+            <Sk className="w-14 h-14 rounded-xl shrink-0" />
+            <div className="space-y-2">
+              <Sk className="h-7 w-64" />
+              <Sk className="h-4 w-40" />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Sk className="h-6 w-24 rounded-full" />
+            <Sk className="h-6 w-28 rounded-full" />
+            <Sk className="h-6 w-20 rounded-full" />
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border space-y-3">
+          <Sk className="h-6 w-40" />
+          <Sk className="h-4 w-full" />
+          <Sk className="h-4 w-5/6" />
+          <Sk className="h-4 w-2/3" />
+        </div>
       </div>
     );
   }

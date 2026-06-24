@@ -20,36 +20,53 @@ const roleConfig: Record<SSORole, {
   idLabel: string;
   idPlaceholder: string;
   icon: string;
+  // Dev/demo credentials prefilled when switching role, so testing doesn't
+  // require retyping. Safe to remove before going to production.
+  email: string;
+  password: string;
 }> = {
   student: {
     label: "Mahasiswa",
     idLabel: "Email Mahasiswa",
     idPlaceholder: "mahasiswa@univnusantara.ac.id",
     icon: "school",
+    email: "reyhan.3du@upi.edu",
+    password: "123123123",
   },
   admin: {
     label: "Admin Prodi",
     idLabel: "Email Institusi",
     idPlaceholder: "admin.prodi@univnusantara.ac.id",
     icon: "admin_panel_settings",
+    email: "alfiansyah@telu.edu",
+    password: "123123123",
   },
   superadmin: {
     label: "Superadmin (IT Pusat)",
     idLabel: "Email Institusi",
     idPlaceholder: "admin@univnusantara.ac.id",
     icon: "shield_person",
+    email: "reyhan@superadmin.com",
+    password: "superadmin123",
   },
 };
 
 export default function SSOPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [role, setRole] = useState<SSORole>("student");
+  const [email, setEmail] = useState(roleConfig.student.email);
+  const [password, setPassword] = useState(roleConfig.student.password);
   const [error, setError] = useState<string | null>(null);
 
   const config = roleConfig[role];
+
+  // Switching role prefills that role's demo credentials.
+  const handleRoleChange = (v: SSORole) => {
+    setRole(v);
+    setEmail(roleConfig[v].email);
+    setPassword(roleConfig[v].password);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,7 +108,7 @@ export default function SSOPage() {
 
           <div className="mb-5">
             <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Login Sebagai</label>
-            <Select value={role} onValueChange={(v) => setRole(v as SSORole)}>
+            <Select value={role} onValueChange={(v) => handleRoleChange(v as SSORole)}>
               <SelectTrigger className="h-12 w-full bg-gray-50 border-gray-200">
                 <Icon name={config.icon} size={18} className="text-on-surface-variant shrink-0" />
                 <SelectValue />
@@ -143,10 +160,10 @@ export default function SSOPage() {
               {isLoading ? (
                 <>
                   <Icon name="progress_activity" className="animate-spin" />
-                  Mengotentikasi sebagai {config.label}...
+                  Login...
                 </>
               ) : (
-                <>Masuk via SSO sebagai {config.label}</>
+                <>Login</>
               )}
             </button>
           </form>

@@ -299,8 +299,27 @@ export const adminDataMutators = {
   },
 };
 
+// Auth user the cache currently holds data for. Lets us ignore the redundant
+// SIGNED_IN events auth-js re-emits on tab refocus.
+let currentUserId: string | null = null;
+
 if (typeof window !== "undefined") {
-  supabase.auth.onAuthStateChange((event) => {
-    if (event === "SIGNED_OUT") resetAdminDataStore();
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT") {
+      currentUserId = null;
+      resetAdminDataStore();
+      return;
+    }
+    // INITIAL_SESSION (page load / refresh) and SIGNED_IN (login) drive the
+    // load. auth-js re-emits SIGNED_IN on tab refocus, so only (re)load when
+    // the user id actually changes.
+    if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+      const uid = session?.user?.id ?? null;
+      if (uid && uid !== currentUserId) {
+        currentUserId = uid;
+        resetAdminDataStore();
+        ensureAdminDataInitialized().catch(() => {});
+      }
+    }
   });
 }
