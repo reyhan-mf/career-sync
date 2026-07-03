@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import Icon from "@/components/ui/Icon";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CardSkeleton } from "@/components/ui/Skeletons";
 import {
   Select,
   SelectContent,
@@ -202,8 +204,17 @@ export default function MKGradesMatrixPage() {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto py-10 text-center font-body text-sm text-on-surface-variant">
-        Memuat data...
+      <div className="max-w-6xl mx-auto space-y-6">
+        <Skeleton className="h-5 w-40" />
+        <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border space-y-3">
+          <Skeleton className="h-7 w-1/2" />
+          <Skeleton className="h-4 w-1/3" />
+          <div className="flex gap-2 pt-1">
+            <Skeleton className="h-6 w-20 rounded-full" />
+            <Skeleton className="h-6 w-24 rounded-full" />
+          </div>
+        </div>
+        <CardSkeleton lines={5} />
       </div>
     );
   }

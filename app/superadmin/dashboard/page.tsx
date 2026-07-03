@@ -4,6 +4,8 @@ import React from "react";
 import Link from "next/link";
 import Icon from "@/components/ui/Icon";
 import StatCard from "@/components/ui/StatCard";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ListCardSkeleton, StatGridSkeleton } from "@/components/ui/Skeletons";
 import { getDisplayName, getInitials } from "@/lib/supabase/auth";
 import { useSuperadminData } from "../SuperadminDataProvider";
 
@@ -31,8 +33,13 @@ export default function SuperadminDashboard() {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto flex items-center justify-center py-20">
-        <p className="font-body text-sm text-on-surface-variant">Memuat data...</p>
+      <div className="max-w-6xl mx-auto space-y-8">
+        <Skeleton className="h-28 w-full rounded-2xl" />
+        <StatGridSkeleton />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ListCardSkeleton />
+          <ListCardSkeleton />
+        </div>
       </div>
     );
   }

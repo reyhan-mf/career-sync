@@ -14,6 +14,7 @@ import {
   relativeTime,
   type NotificationRow,
 } from "@/lib/supabase/notification-queries";
+import { ListRowSkeleton } from "@/components/ui/Skeletons";
 
 export default function NotificationsPage() {
   const router = useRouter();
@@ -128,7 +129,11 @@ export default function NotificationsPage() {
           </div>
 
           {status === "loading" && (
-            <div className="text-center py-12 font-body text-sm text-on-surface-variant">Memuat notifikasi…</div>
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <ListRowSkeleton key={i} />
+              ))}
+            </div>
           )}
 
           {status === "signed-out" && (

@@ -1,6 +1,7 @@
 "use client";
 
 import Icon from "@/components/ui/Icon";
+import { TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
   Select,
   SelectContent,
@@ -169,11 +170,7 @@ export default function AdminGradesPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
-                    Memuat data...
-                  </td>
-                </tr>
+                <TableRowsSkeleton rows={6} cols={7} />
               ) : filteredCoverages.map(({ mk, cloCount, graded, progress }) => {
                 const hasCLO = cloCount > 0;
                 const isComplete = progress === 100;

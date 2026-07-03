@@ -19,6 +19,7 @@ import {
   type TalentStudent,
 } from "./hr-queries";
 import { reportHrError } from "./hrErrors";
+import { clearRoleCache, resolveUserRole } from "./currentRole";
 
 export interface HRDataState {
   hr: HRProfileWithCompany | null;
@@ -298,6 +299,7 @@ if (typeof window !== "undefined") {
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT") {
       currentUserId = null;
+      clearRoleCache();
       resetHrDataStore();
       return;
     }
@@ -314,7 +316,18 @@ if (typeof window !== "undefined") {
       if (uid && uid !== currentUserId) {
         currentUserId = uid;
         resetHrDataStore();
-        ensureHrDataInitialized().catch(() => {});
+        // Show the skeleton immediately while we confirm the role, then load
+        // ONLY if this user is actually an HR. Other roles must not trigger
+        // getCurrentHrProfile() — that would throw the "profil HR" error.
+        setState({ loading: true });
+        resolveUserRole(uid).then((role) => {
+          if (currentUserId !== uid) return; // signed out / switched meanwhile
+          if (role === "hr") {
+            ensureHrDataInitialized().catch(() => {});
+          } else {
+            setState({ loading: false });
+          }
+        });
       }
     }
   });

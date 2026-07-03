@@ -1,6 +1,9 @@
 "use client";
 
 import Icon from "@/components/ui/Icon";
+import CompetencyInsight from "@/components/hr/CompetencyInsight";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
   Select,
   SelectContent,
@@ -32,7 +35,7 @@ import {
 import { hrDataMutators } from "@/lib/supabase/hrDataStore";
 import { reportHrError } from "@/lib/supabase/hrErrors";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHRData } from "../HRDataProvider";
 
 interface TalentRow {
@@ -62,17 +65,35 @@ export default function TalentPoolPage() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Per-requirement CLO breakdown for the open talent vs their best-match job —
-  // same RPC the student job-detail page uses (student_job_match_breakdown).
-  // Stored together with the (talent, job) it was fetched for so loading/error
-  // can be derived instead of set synchronously inside the effect.
-  const [breakdownData, setBreakdownData] = useState<{
-    talentId: string;
-    jobId: string;
-    rows: ReqMatchBreakdown[];
-    status: "ready" | "error";
-  } | null>(null);
-  const [openReqs, setOpenReqs] = useState<Set<string>>(new Set());
+  // Per-requirement CLO breakdown for a talent vs their best-match job — same
+  // RPC the student job-detail page uses (student_job_match_breakdown). Cached
+  // per (talent, job) so every talent fetches at most once and re-opening one is
+  // instant. We also prefetch the visible talents below, so opening any of them
+  // shows the analysis immediately instead of one being instant and the next
+  // flashing a loader.
+  type BreakdownEntry = { rows: ReqMatchBreakdown[]; status: "ready" | "error" };
+  const [breakdownCache, setBreakdownCache] = useState<Map<string, BreakdownEntry>>(
+    new Map(),
+  );
+  const inFlight = useRef<Set<string>>(new Set());
+
+  const breakdownKey = (talentId: string, jobId: string) => `${talentId}:${jobId}`;
+
+  const fetchBreakdown = useCallback((talentId: string, jobId: string) => {
+    const key = breakdownKey(talentId, jobId);
+    if (inFlight.current.has(key)) return;
+    inFlight.current.add(key);
+    getJobMatchBreakdown(talentId, jobId)
+      .then((rows) =>
+        setBreakdownCache((prev) => new Map(prev).set(key, { rows, status: "ready" })),
+      )
+      .catch(() =>
+        setBreakdownCache((prev) =>
+          new Map(prev).set(key, { rows: [], status: "error" }),
+        ),
+      )
+      .finally(() => inFlight.current.delete(key));
+  }, []);
 
   const activeJobs = useMemo(
     () => jobs.filter((j) => j.status === "active" || j.status === "closing"),
@@ -189,57 +210,36 @@ export default function TalentPoolPage() {
   const insightTalentId = selected?.talent.id ?? null;
   const insightJobId = selected?.bestJob?.id ?? null;
 
-  // Load the talent's CLO breakdown against their best-match job whenever the
-  // open talent (or that job) changes. Reuses the student-side RPC, so the
-  // numbers/tables match what the student sees on /student/jobs/[id]. setState
-  // only happens in the async callbacks (never synchronously in the body).
+  // Fetch the open talent's CLO breakdown if it isn't cached yet. Reuses the
+  // student-side RPC so the numbers match /student/jobs/[id].
   useEffect(() => {
     if (!insightTalentId || !insightJobId) return;
-    let alive = true;
-    getJobMatchBreakdown(insightTalentId, insightJobId)
-      .then(
-        (rows) =>
-          alive &&
-          setBreakdownData({
-            talentId: insightTalentId,
-            jobId: insightJobId,
-            rows,
-            status: "ready",
-          }),
-      )
-      .catch(
-        () =>
-          alive &&
-          setBreakdownData({
-            talentId: insightTalentId,
-            jobId: insightJobId,
-            rows: [],
-            status: "error",
-          }),
-      );
-    return () => {
-      alive = false;
-    };
-  }, [insightTalentId, insightJobId]);
+    if (breakdownCache.has(breakdownKey(insightTalentId, insightJobId))) return;
+    fetchBreakdown(insightTalentId, insightJobId);
+  }, [insightTalentId, insightJobId, breakdownCache, fetchBreakdown]);
 
-  // Only trust breakdownData when it matches the currently-open talent + job;
-  // otherwise we're still loading the new one.
-  const breakdownFresh =
-    !!insightTalentId &&
-    !!insightJobId &&
-    breakdownData?.talentId === insightTalentId &&
-    breakdownData?.jobId === insightJobId;
-  const breakdown = breakdownFresh ? breakdownData!.rows : [];
-  const breakdownLoading = !!insightJobId && !breakdownFresh;
-  const breakdownError = breakdownFresh && breakdownData!.status === "error";
+  // Background-prefetch breakdowns for the visible (filtered, score-sorted)
+  // talents so opening any of them is instant. Capped so a large pool doesn't
+  // fire hundreds of RPCs at once; the rest still load on demand from the effect
+  // above. Already-cached / in-flight pairs are skipped.
+  useEffect(() => {
+    filtered
+      .filter((r) => r.bestJob)
+      .slice(0, 25)
+      .forEach((r) => {
+        if (!breakdownCache.has(breakdownKey(r.talent.id, r.bestJob!.id))) {
+          fetchBreakdown(r.talent.id, r.bestJob!.id);
+        }
+      });
+  }, [filtered, breakdownCache, fetchBreakdown]);
 
-  const toggleReq = (id: string) =>
-    setOpenReqs((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const currentEntry =
+    insightTalentId && insightJobId
+      ? breakdownCache.get(breakdownKey(insightTalentId, insightJobId))
+      : undefined;
+  const breakdown = currentEntry?.status === "ready" ? currentEntry.rows : [];
+  const breakdownLoading = !!insightJobId && !currentEntry;
+  const breakdownError = currentEntry?.status === "error";
 
   const openTalent = (row: TalentRow) => {
     setSelectedId(row.talent.id);
@@ -286,8 +286,37 @@ export default function TalentPoolPage() {
 
   if (loading && rows.length === 0) {
     return (
-      <div className="max-w-6xl mx-auto p-10 text-center font-body text-sm text-on-surface-variant">
-        Memuat data...
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-64 max-w-full" />
+          <Skeleton className="h-4 w-full max-w-2xl" />
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border space-y-2"
+            >
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-7 w-12" />
+            </div>
+          ))}
+        </div>
+        <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border space-y-3">
+          <Skeleton className="h-12 w-full rounded-xl" />
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded-xl" />
+            ))}
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
+          <table className="w-full">
+            <tbody>
+              <TableRowsSkeleton rows={6} cols={6} />
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -379,172 +408,13 @@ export default function TalentPoolPage() {
                 />
               </div>
 
-              {selected.skills.length > 0 && (
-                <div>
-                  <p className="font-label text-xs uppercase tracking-wider text-on-surface-variant mb-2">
-                    Indikator Skill
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {selected.skills.map((s) => (
-                      <span
-                        key={s}
-                        className="px-3 py-1.5 bg-secondary-container text-on-secondary-container rounded-full font-label text-sm"
-                      >
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selected.grades.length > 0 && (
-                <div>
-                  <p className="font-label text-xs uppercase tracking-wider text-on-surface-variant mb-2">
-                    Insight CLO Teratas
-                  </p>
-                  <div className="space-y-2">
-                    {[...selected.grades]
-                      .sort((a, b) => gradeRank(b.grade) - gradeRank(a.grade))
-                      .slice(0, 4)
-                      .map((g) => {
-                        const pct = gradePercent(g.grade);
-                        return (
-                          <div
-                            key={`${g.student_id}-${g.clo_id}`}
-                            className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-surface-container-low"
-                          >
-                            <div className="min-w-0">
-                              <p className="font-label text-xs font-semibold text-on-background">
-                                {g.clos?.clo_code ?? "CLO"}
-                              </p>
-                              <p className="font-body text-xs text-on-surface-variant truncate">
-                                {g.clos?.clo_text ?? "—"}
-                              </p>
-                            </div>
-                            <span
-                              className={`px-2 py-0.5 rounded-full font-label text-xs font-bold ${matchColorClass(pct)}`}
-                            >
-                              {g.grade ?? "—"}
-                            </span>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-
-              {selected.bestJob && (
-                <div>
-                  <p className="font-label text-xs uppercase tracking-wider text-on-surface-variant mb-2">
-                    Analisis Kompetensi · {selected.bestJob.title}
-                  </p>
-                  {breakdownLoading && (
-                    <p className="font-body text-xs text-on-surface-variant">
-                      Memuat analisis kompetensi…
-                    </p>
-                  )}
-                  {breakdownError && (
-                    <p className="font-body text-xs text-error">
-                      Gagal memuat analisis kompetensi.
-                    </p>
-                  )}
-                  {!breakdownLoading && !breakdownError && breakdown.length === 0 && (
-                    <p className="font-body text-xs text-on-surface-variant">
-                      Belum ada data analisis kompetensi untuk lowongan ini.
-                    </p>
-                  )}
-                  {!breakdownLoading && !breakdownError && breakdown.length > 0 && (
-                    <div className="space-y-2">
-                      {[...breakdown]
-                        .sort((a, b) => a.req_position - b.req_position)
-                        .map((b, idx) => {
-                          const reqKey = `${selected.talent.id}:${b.requirement_id}`;
-                          const isOpen = openReqs.has(reqKey);
-                          const hasClo = !!b.clo_code;
-                          const sim = Math.round(b.similarity * 100);
-                          return (
-                            <div
-                              key={b.requirement_id}
-                              className="rounded-xl bg-surface-container-low overflow-hidden"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => toggleReq(reqKey)}
-                                aria-expanded={isOpen}
-                                className="w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-surface-container transition-colors"
-                              >
-                                <span className="font-label text-xs text-on-surface-variant shrink-0">
-                                  {idx + 1}.
-                                </span>
-                                <span className="flex-1 min-w-0 font-body text-xs font-semibold text-on-background">
-                                  {b.req_text}
-                                </span>
-                                <span
-                                  className={`font-label text-xs font-bold px-2 py-0.5 rounded bg-surface-container shrink-0 ${scoreColor(b.contribution)}`}
-                                >
-                                  {b.contribution}%
-                                </span>
-                                <Icon
-                                  name="expand_more"
-                                  size={18}
-                                  className={`text-on-surface-variant shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
-                                />
-                              </button>
-                              {isOpen && (
-                                <div className="px-3 pb-3 pt-1">
-                                  {hasClo ? (
-                                    <table className="w-full border-collapse text-xs table-fixed">
-                                      <thead>
-                                        <tr className="border-b-2 border-outline-variant/40">
-                                          <th className="w-[30%] text-left font-label text-[10px] font-bold text-on-surface-variant px-2 py-1.5">
-                                            Matkul
-                                          </th>
-                                          <th className="w-[3.25rem] text-center font-label text-[10px] font-bold text-on-surface-variant px-2 py-1.5">
-                                            Nilai
-                                          </th>
-                                          <th className="text-left font-label text-[10px] font-bold text-on-surface-variant px-2 py-1.5">
-                                            CLO
-                                          </th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        <tr className="align-top">
-                                          <td className="px-2 py-2 font-label text-[11px] text-on-surface">
-                                            {b.matkul_nama ?? "—"}
-                                          </td>
-                                          <td className="px-2 py-2 text-center font-label text-xs font-semibold text-on-surface">
-                                            {b.grade != null ? b.grade : "—"}
-                                          </td>
-                                          <td className="px-2 py-2 font-body text-[11px] text-on-surface leading-relaxed">
-                                            <span className="font-semibold text-primary">
-                                              {b.clo_code}
-                                            </span>
-                                            {" — "}
-                                            {b.clo_text ?? "Teks CLO tidak tersedia."}
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  ) : (
-                                    <p className="px-2 font-body text-[11px] text-on-surface-variant italic">
-                                      Tidak ada CLO yang relevan untuk kualifikasi ini.
-                                    </p>
-                                  )}
-                                  <p className="px-2 mt-1.5 font-label text-[10px] text-on-surface-variant">
-                                    Kemiripan {sim}% × nilai {b.grade ?? 0} ={" "}
-                                    <span className={`font-bold ${scoreColor(b.contribution)}`}>
-                                      {b.contribution}% kontribusi
-                                    </span>
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                    </div>
-                  )}
-                </div>
-              )}
+              <CompetencyInsight
+                key={selected.talent.id}
+                jobTitle={selected.bestJob?.title ?? null}
+                breakdown={breakdown}
+                loading={breakdownLoading}
+                error={breakdownError}
+              />
 
               {selected.uiStatus === "not_contacted" && activeJobs.length > 0 && (
                 <div className="p-4 rounded-xl bg-primary-fixed/40 border border-primary/20 space-y-3">
@@ -912,8 +782,8 @@ export default function TalentPoolPage() {
         </div>
 
         {!hr && (
-          <div className="px-4 py-3 bg-surface-container-low rounded-xl text-on-surface-variant font-label text-sm text-center">
-            Memuat profil HR...
+          <div className="px-4 py-3 bg-surface-container-low rounded-xl flex justify-center">
+            <Skeleton className="h-4 w-40" />
           </div>
         )}
       </div>
@@ -968,20 +838,3 @@ function StatBox({
   );
 }
 
-function gradeRank(grade: number | null | undefined): number {
-  return typeof grade === "number" ? grade : -1;
-}
-
-function gradePercent(grade: number | null | undefined): number {
-  return typeof grade === "number" ? grade : 0;
-}
-
-// Tailwind text-color for a 0-100 contribution score — mirrors the student
-// job-detail page so HR sees the same color coding on the breakdown.
-function scoreColor(score: number | null): string {
-  if (score == null) return "text-on-surface-variant";
-  if (score >= 85) return "text-green-600";
-  if (score >= 70) return "text-primary";
-  if (score >= 55) return "text-tertiary";
-  return "text-error";
-}

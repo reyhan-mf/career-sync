@@ -11,6 +11,7 @@ import {
 } from "./admin-queries";
 import { reportAdminError } from "./adminErrors";
 import type { AdminProdiInfo } from "./useAdminProdi";
+import { clearRoleCache, resolveUserRole } from "./currentRole";
 
 export interface AdminDataState {
   adminCtx: AdminProdiInfo | null;
@@ -307,6 +308,7 @@ if (typeof window !== "undefined") {
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT") {
       currentUserId = null;
+      clearRoleCache();
       resetAdminDataStore();
       return;
     }
@@ -318,7 +320,18 @@ if (typeof window !== "undefined") {
       if (uid && uid !== currentUserId) {
         currentUserId = uid;
         resetAdminDataStore();
-        ensureAdminDataInitialized().catch(() => {});
+        // Show the skeleton immediately while we confirm the role, then load
+        // ONLY if this user is actually an admin. Other roles must not trigger
+        // resolveAdminCtx() — that would throw "belum ditautkan ke prodi".
+        setState({ loading: true });
+        resolveUserRole(uid).then((role) => {
+          if (currentUserId !== uid) return; // signed out / switched meanwhile
+          if (role === "admin") {
+            ensureAdminDataInitialized().catch(() => {});
+          } else {
+            setState({ loading: false });
+          }
+        });
       }
     }
   });

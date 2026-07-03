@@ -17,6 +17,7 @@ import {
 } from "./invitation-queries";
 import type { StudentCLO } from "./admin-queries";
 import { reportStudentError } from "./studentErrors";
+import { clearRoleCache, resolveUserRole } from "./currentRole";
 
 export interface StudentDataState {
   profile: StudentProfile | null;
@@ -253,6 +254,7 @@ if (typeof window !== "undefined") {
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT") {
       currentUserId = null;
+      clearRoleCache();
       resetStudentDataStore();
       return;
     }
@@ -265,7 +267,18 @@ if (typeof window !== "undefined") {
       if (uid && uid !== currentUserId) {
         currentUserId = uid;
         resetStudentDataStore();
-        ensureStudentDataInitialized().catch(() => {});
+        // Show the skeleton immediately while we confirm the role, then load
+        // ONLY if this user is actually a student. Other roles must not trigger
+        // getCurrentStudentProfile() — that would throw "belum ditautkan".
+        setState({ loading: true });
+        resolveUserRole(uid).then((role) => {
+          if (currentUserId !== uid) return; // signed out / switched meanwhile
+          if (role === "student") {
+            ensureStudentDataInitialized().catch(() => {});
+          } else {
+            setState({ loading: false });
+          }
+        });
       }
     }
   });

@@ -2,6 +2,8 @@
 
 import Icon from "@/components/ui/Icon";
 import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatGridSkeleton, TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
   Table,
   TableBody,
@@ -51,8 +53,24 @@ export default function ApplicationsPage() {
 
   if (loading && !profile) {
     return (
-      <div className="max-w-6xl mx-auto py-10 text-center font-body text-sm text-on-surface-variant">
-        Memuat data...
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-56 max-w-full" />
+          <Skeleton className="h-4 w-80 max-w-full" />
+        </div>
+        <StatGridSkeleton />
+        <div className="flex flex-wrap gap-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-24 rounded-xl" />
+          ))}
+        </div>
+        <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
+          <table className="w-full">
+            <tbody>
+              <TableRowsSkeleton rows={6} cols={5} />
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }

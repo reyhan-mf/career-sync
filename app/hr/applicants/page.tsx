@@ -1,6 +1,8 @@
 "use client";
 
 import Icon from "@/components/ui/Icon";
+import CompetencyInsight from "@/components/hr/CompetencyInsight";
+import { TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
   Select,
   SelectContent,
@@ -17,8 +19,12 @@ import {
 import { hrDataMutators } from "@/lib/supabase/hrDataStore";
 import { reportHrError } from "@/lib/supabase/hrErrors";
 import { gradesByCloId, matchScoreFromRbc, rbcByJobId } from "@/lib/hr-match";
+import {
+  getJobMatchBreakdown,
+  type ReqMatchBreakdown,
+} from "@/lib/supabase/student-queries";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHRData } from "../HRDataProvider";
 
 const statusLabel: Record<ApplicationStatus, string> = {
@@ -88,6 +94,51 @@ function ApplicantsContent() {
   );
   const selectedScore = selected ? scoreFor(selected) : null;
 
+  // Per-requirement CLO breakdown of the selected applicant vs the job they
+  // applied to — same RPC + <CompetencyInsight /> the talent pool uses, so both
+  // modals show identical output. Cached per (student, job) so re-opening is
+  // instant; visible applicants are prefetched below.
+  type BreakdownEntry = { rows: ReqMatchBreakdown[]; status: "ready" | "error" };
+  const [breakdownCache, setBreakdownCache] = useState<Map<string, BreakdownEntry>>(
+    new Map(),
+  );
+  const inFlight = useRef<Set<string>>(new Set());
+  const breakdownKey = (studentId: string, jobId: string) => `${studentId}:${jobId}`;
+
+  const fetchBreakdown = useCallback((studentId: string, jobId: string) => {
+    const key = breakdownKey(studentId, jobId);
+    if (inFlight.current.has(key)) return;
+    inFlight.current.add(key);
+    getJobMatchBreakdown(studentId, jobId)
+      .then((rows) =>
+        setBreakdownCache((prev) => new Map(prev).set(key, { rows, status: "ready" })),
+      )
+      .catch(() =>
+        setBreakdownCache((prev) =>
+          new Map(prev).set(key, { rows: [], status: "error" }),
+        ),
+      )
+      .finally(() => inFlight.current.delete(key));
+  }, []);
+
+  const selectedStudentId = selected?.students?.id ?? null;
+  const selectedJobId = selected?.job_id ?? null;
+
+  // Fetch the open applicant's breakdown if not cached yet.
+  useEffect(() => {
+    if (!selectedStudentId || !selectedJobId) return;
+    if (breakdownCache.has(breakdownKey(selectedStudentId, selectedJobId))) return;
+    fetchBreakdown(selectedStudentId, selectedJobId);
+  }, [selectedStudentId, selectedJobId, breakdownCache, fetchBreakdown]);
+
+  const currentEntry =
+    selectedStudentId && selectedJobId
+      ? breakdownCache.get(breakdownKey(selectedStudentId, selectedJobId))
+      : undefined;
+  const breakdown = currentEntry?.status === "ready" ? currentEntry.rows : [];
+  const breakdownLoading = !!selectedJobId && !currentEntry;
+  const breakdownError = currentEntry?.status === "error";
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return applications.filter((a) => {
@@ -102,6 +153,20 @@ function ApplicantsContent() {
       return matchesSearch && matchesJob && matchesStatus;
     });
   }, [applications, search, jobFilter, statusFilter]);
+
+  // Background-prefetch breakdowns for the visible applicants so opening any of
+  // them shows the analysis instantly. Capped; already-cached pairs are skipped.
+  useEffect(() => {
+    filtered
+      .slice(0, 25)
+      .forEach((a) => {
+        const sid = a.students?.id;
+        if (!sid || !a.job_id) return;
+        if (!breakdownCache.has(breakdownKey(sid, a.job_id))) {
+          fetchBreakdown(sid, a.job_id);
+        }
+      });
+  }, [filtered, breakdownCache, fetchBreakdown]);
 
   const updateStatus = async (id: string, newStatus: ApplicationStatus) => {
     setBusy(true);
@@ -221,6 +286,14 @@ function ApplicantsContent() {
                 )}
               </div>
 
+              <CompetencyInsight
+                key={selectedStudentId ?? "none"}
+                jobTitle={selected.jobs?.title ?? null}
+                breakdown={breakdown}
+                loading={breakdownLoading}
+                error={breakdownError}
+              />
+
               <div>
                 <p className="font-label text-sm text-on-surface-variant mb-2">
                   Update Status
@@ -339,14 +412,7 @@ function ApplicantsContent() {
               </thead>
               <tbody>
                 {loading && applications.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-6 py-10 text-center font-body text-sm text-on-surface-variant"
-                    >
-                      Memuat data...
-                    </td>
-                  </tr>
+                  <TableRowsSkeleton rows={6} cols={6} />
                 ) : (
                   filtered.map((a) => {
                     const score = scoreFor(a);

@@ -3,7 +3,31 @@
 import Icon from "@/components/ui/Icon";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useStudentData } from "../StudentDataProvider";
+
+function JobCardSkeleton() {
+  return (
+    <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+      <div className="flex items-start justify-between mb-4 gap-3">
+        <div className="flex-1 min-w-0 space-y-2">
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+        <Skeleton className="h-6 w-14 rounded-full shrink-0" />
+      </div>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        <Skeleton className="h-5 w-16 rounded-full" />
+        <Skeleton className="h-5 w-20 rounded-full" />
+        <Skeleton className="h-5 w-14 rounded-full" />
+      </div>
+      <div className="flex items-center gap-4">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-20" />
+      </div>
+    </div>
+  );
+}
 
 const TYPE_OPTIONS = [
   { value: "all", label: "Semua" },
@@ -188,8 +212,26 @@ export default function JobMatchingPage() {
 
   if (loading && !profile) {
     return (
-      <div className="max-w-6xl mx-auto py-10 text-center font-body text-sm text-on-surface-variant">
-        Memuat data...
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-48 max-w-full" />
+          <Skeleton className="h-4 w-72 max-w-full" />
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-12 flex-1 rounded-2xl" />
+            <Skeleton className="h-12 w-60 shrink-0 rounded-2xl" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-9 w-24 rounded-xl" />
+            <Skeleton className="h-9 w-24 rounded-xl" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <JobCardSkeleton key={i} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -312,11 +354,9 @@ export default function JobMatchingPage() {
       )}
 
       {hasMore && (
-        <div ref={sentinelRef} className="flex justify-center py-6">
-          <div className="flex items-center gap-2 font-label text-sm text-on-surface-variant">
-            <Icon name="progress_activity" size={18} className="animate-spin" />
-            Memuat lowongan...
-          </div>
+        <div ref={sentinelRef} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <JobCardSkeleton />
+          <JobCardSkeleton />
         </div>
       )}
     </div>

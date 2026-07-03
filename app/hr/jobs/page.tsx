@@ -2,6 +2,7 @@
 
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Icon from "@/components/ui/Icon";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -473,9 +474,26 @@ function ManageJobsContent() {
 
         <div className="space-y-3">
           {storeLoading && jobs.length === 0 ? (
-            <div className="bg-surface-container-lowest rounded-2xl p-10 text-center font-body text-sm text-on-surface-variant">
-              Memuat data...
-            </div>
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                </div>
+                <Skeleton className="h-6 w-1/2 mb-2" />
+                <div className="flex flex-wrap gap-3">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-32" />
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  <Skeleton className="h-6 w-16 rounded-full" />
+                  <Skeleton className="h-6 w-20 rounded-full" />
+                  <Skeleton className="h-6 w-14 rounded-full" />
+                </div>
+              </div>
+            ))
           ) : filtered.length === 0 ? (
             <div className="bg-surface-container-lowest rounded-2xl p-10 text-center">
               <Icon name="work_off" size={40} className="text-on-surface-variant mx-auto mb-3" />

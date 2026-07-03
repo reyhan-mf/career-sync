@@ -2,6 +2,8 @@
 
 import ChangePasswordModal from "@/components/ui/ChangePasswordModal";
 import Icon from "@/components/ui/Icon";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CardSkeleton } from "@/components/ui/Skeletons";
 import {
   Select,
   SelectContent,
@@ -55,8 +57,14 @@ export default function HRProfilePage() {
 
   if (loading && !hr) {
     return (
-      <div className="max-w-4xl mx-auto p-10 text-center font-body text-sm text-on-surface-variant">
-        Memuat data...
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-72 max-w-full" />
+          <Skeleton className="h-4 w-96 max-w-full" />
+        </div>
+        <CardSkeleton lines={4} />
+        <CardSkeleton lines={5} />
+        <CardSkeleton lines={2} />
       </div>
     );
   }

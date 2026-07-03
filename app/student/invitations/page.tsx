@@ -3,6 +3,8 @@
 import Icon from "@/components/ui/Icon";
 import Link from "next/link";
 import { useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CardSkeleton, StatGridSkeleton } from "@/components/ui/Skeletons";
 import { useStudentData } from "../StudentDataProvider";
 import { studentDataMutators } from "@/lib/supabase/studentDataStore";
 import {
@@ -61,8 +63,22 @@ export default function InvitationsPage() {
 
   if (loading && !profile) {
     return (
-      <div className="max-w-5xl mx-auto py-10 text-center font-body text-sm text-on-surface-variant">
-        Memuat data...
+      <div className="max-w-5xl mx-auto space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-56 max-w-full" />
+          <Skeleton className="h-4 w-96 max-w-full" />
+        </div>
+        <StatGridSkeleton />
+        <div className="flex gap-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-28 rounded-xl" />
+          ))}
+        </div>
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <CardSkeleton key={i} lines={3} />
+          ))}
+        </div>
       </div>
     );
   }

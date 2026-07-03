@@ -2,6 +2,7 @@
 
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Icon from "@/components/ui/Icon";
+import { TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
   Select,
   SelectContent,
@@ -416,11 +417,7 @@ export default function UsersPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
-                      Memuat data...
-                    </td>
-                  </tr>
+                  <TableRowsSkeleton rows={6} cols={6} />
                 ) : filtered.map((u) => (
                   <tr
                     key={u.id}

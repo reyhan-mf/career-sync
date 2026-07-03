@@ -6,6 +6,7 @@ import {
   type AdminUserWithProdi,
   type Prodi,
 } from "./superadmin-queries";
+import { clearRoleCache, resolveUserRole } from "./currentRole";
 
 export interface SuperadminDataState {
   currentUser: User | null;
@@ -174,6 +175,7 @@ if (typeof window !== "undefined") {
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT") {
       currentUserId = null;
+      clearRoleCache();
       resetSuperadminDataStore();
       return;
     }
@@ -185,7 +187,18 @@ if (typeof window !== "undefined") {
       if (uid && uid !== currentUserId) {
         currentUserId = uid;
         resetSuperadminDataStore();
-        ensureSuperadminDataInitialized().catch(() => {});
+        // Show the skeleton immediately while we confirm the role, then load
+        // ONLY if this user is actually a superadmin. Other roles must not
+        // fetch the admin/prodi lists they have no business loading.
+        setState({ loading: true });
+        resolveUserRole(uid).then((role) => {
+          if (currentUserId !== uid) return; // signed out / switched meanwhile
+          if (role === "superadmin") {
+            ensureSuperadminDataInitialized().catch(() => {});
+          } else {
+            setState({ loading: false });
+          }
+        });
       }
     }
   });

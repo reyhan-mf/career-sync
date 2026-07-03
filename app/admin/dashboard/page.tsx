@@ -2,6 +2,8 @@
 
 import Icon from "@/components/ui/Icon";
 import StatCard from "@/components/ui/StatCard";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ListCardSkeleton, StatGridSkeleton } from "@/components/ui/Skeletons";
 import { type Matkul } from "@/lib/supabase/admin-queries";
 import { useAdminData } from "../AdminDataProvider";
 import Link from "next/link";
@@ -136,8 +138,11 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto py-10 text-center font-body text-sm text-on-surface-variant">
-        Memuat data...
+      <div className="max-w-6xl mx-auto space-y-8">
+        <Skeleton className="h-28 w-full rounded-2xl" />
+        <StatGridSkeleton />
+        <ListCardSkeleton rows={3} />
+        <ListCardSkeleton rows={3} />
       </div>
     );
   }

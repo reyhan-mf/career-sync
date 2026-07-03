@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import { TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
   Select,
   SelectContent,
@@ -475,7 +476,7 @@ export default function ManageAdminsPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={5} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">Memuat data...</td></tr>
+                  <TableRowsSkeleton rows={6} cols={5} />
                 ) : filtered.map((a) => (
                   <tr key={a.id} className="hover:bg-surface-container-low transition-colors border-t border-surface-variant">
                     <td className="px-6 py-4">
