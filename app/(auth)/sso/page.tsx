@@ -98,13 +98,6 @@ export default function SSOPage() {
 
         {/* Form Login */}
         <div className="p-8">
-          <div className="mb-5 px-4 py-3 bg-tertiary-fixed rounded-xl flex items-start gap-3">
-            <Icon name="info" size={18} className="text-on-tertiary-container shrink-0 mt-0.5" />
-            <p className="font-label text-xs text-on-tertiary-container leading-relaxed">
-              Pilih peran sesuai akun Anda. Sistem akan memverifikasi role di
-              database Supabase setelah login.
-            </p>
-          </div>
 
           <div className="mb-5">
             <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Login Sebagai</label>

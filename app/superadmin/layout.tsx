@@ -13,10 +13,7 @@ const superadminNav: NavItem[] = [
   { label: "Kelola Admin Prodi", icon: "admin_panel_settings", href: "/superadmin/admins" },
 ];
 
-const bottomNav: NavItem[] = [
-  { label: "Notifikasi", icon: "notifications", href: "/notifications" },
-  { label: "Bantuan", icon: "help_center", href: "#" },
-];
+const bottomNav: NavItem[] = [];
 
 export default function SuperadminLayout({ children }: { children: React.ReactNode }) {
   return (

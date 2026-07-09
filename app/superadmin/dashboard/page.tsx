@@ -180,7 +180,7 @@ export default function SuperadminDashboard() {
       </div>
 
       {/* Distribusi Admin per Prodi */}
-      <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
+      {/* <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
           <div>
             <h2 className="font-headline text-xl font-bold text-on-background">Distribusi Admin per Prodi</h2>
@@ -224,7 +224,7 @@ export default function SuperadminDashboard() {
           <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400/70" /> 1 admin (single point of failure)</span>
           <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-surface-container border border-outline-variant/30" /> Belum ada admin</span>
         </div>
-      </div>
+      </div> */}
 
       {/* Prodi Integration Insight */}
       <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
@@ -258,8 +258,7 @@ export default function SuperadminDashboard() {
                       {style.label}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <p className="font-label text-xs text-on-surface-variant">{p.fakultas ?? "—"}</p>
+                  <div className="flex items-center justify-end">
                     <p className="font-label text-xs font-semibold text-on-background">{adminCount} admin</p>
                   </div>
                 </div>

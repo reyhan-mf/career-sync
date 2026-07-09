@@ -263,7 +263,7 @@ export default function ProfilePage() {
                         {course.matkul.sks ?? "—"}
                       </TableCell>
                       <TableCell className="text-center font-label text-sm font-bold text-on-background">
-                        {course.gradedCount}/{course.totalClos}
+                        {course.totalClos}
                       </TableCell>
                       <TableCell className="text-center">
                         {course.avgScore != null ? (

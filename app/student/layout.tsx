@@ -18,7 +18,6 @@ const studentNav: NavItem[] = [
 
 const bottomNav: NavItem[] = [
   { label: "Notifikasi", icon: "notifications", href: "/notifications" },
-  { label: "Bantuan", icon: "help_center", href: "#" },
 ];
 
 function StudentLayoutInner({ children }: { children: React.ReactNode }) {

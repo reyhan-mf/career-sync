@@ -18,7 +18,6 @@ const hrNav: NavItem[] = [
 const bottomNav: NavItem[] = [
   { label: "Notifikasi", icon: "notifications", href: "/notifications" },
   { label: "Profil & Pengaturan", icon: "manage_accounts", href: "/hr/profile" },
-  { label: "Bantuan", icon: "help_center", href: "#" },
 ];
 
 function HRLayoutInner({ children }: { children: React.ReactNode }) {

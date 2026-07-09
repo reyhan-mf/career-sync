@@ -125,7 +125,7 @@ export default function HRProfilePage() {
             </div>
           </div>
 
-          <div className="p-6 space-y-3">
+          <div className="p-6">
             <div className="flex items-center justify-between gap-4 p-4 rounded-xl bg-surface-container-low">
               <div>
                 <p className="font-body text-sm font-semibold text-on-background">
@@ -143,20 +143,6 @@ export default function HRProfilePage() {
                 <Icon name="lock_reset" size={16} />
                 Ganti Password
               </button>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 p-4 rounded-xl bg-surface-container-low opacity-60">
-              <div>
-                <p className="font-body text-sm font-semibold text-on-background">
-                  Two-Factor Authentication
-                </p>
-                <p className="font-label text-xs text-on-surface-variant">
-                  Tambahkan lapisan keamanan tambahan saat login.
-                </p>
-              </div>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container font-label text-xs font-semibold text-on-surface-variant shrink-0">
-                Segera Hadir
-              </span>
             </div>
           </div>
         </section>

@@ -14,21 +14,13 @@ import {
 import {
   createAdminUser,
   createProdi,
+  resetAdminPassword,
   softDeleteAdminUser,
   updateAdminUser,
-  updateProdi,
   type AdminUserWithProdi,
   type Prodi,
 } from "@/lib/supabase/superadmin-queries";
 import { useSuperadminData } from "../SuperadminDataProvider";
-
-const INTEGRATION_STATUSES = [
-  { value: "planned", label: "Belum Terintegrasi", className: "bg-surface-container text-on-surface-variant" },
-  { value: "pending", label: "Dalam Proses", className: "bg-blue-50 text-blue-700" },
-  { value: "active", label: "Aktif", className: "bg-green-50 text-green-700" },
-] as const;
-
-type IntegrationStatus = (typeof INTEGRATION_STATUSES)[number]["value"];
 
 // ─── ProdiCombobox ────────────────────────────────────────────────────────────
 
@@ -215,14 +207,6 @@ export default function ManageAdminsPage() {
     setError(null);
   };
 
-  const handleChangeIntegration = async (prodiId: string, status: IntegrationStatus) => {
-    try {
-      await updateProdi(prodiId, { integration_status: status });
-    } catch (e) {
-      setError(`Gagal mengubah status integrasi: ${(e as Error).message}`);
-    }
-  };
-
   const handleCreateProdi = async (name: string): Promise<Prodi | null> => {
     try {
       return await createProdi({ name, fakultas: null, integration_status: "planned" });
@@ -244,12 +228,19 @@ export default function ManageAdminsPage() {
         setError("Password minimal 8 karakter.");
         return;
       }
+    } else if (form.password && form.password.length < 8) {
+      // In edit mode the password is optional; validate only when provided.
+      setError("Password minimal 8 karakter.");
+      return;
     }
     setSaving(true);
     setError(null);
     try {
       if (editingId) {
         await updateAdminUser(editingId, { name: form.name, prodi_id: form.prodi_id });
+        if (form.password) {
+          await resetAdminPassword(editingId, form.password);
+        }
       } else {
         await createAdminUser({
           name: form.name,
@@ -342,6 +333,26 @@ export default function ManageAdminsPage() {
                     </p>
                   </div>
                 </>
+              )}
+              {editingId && (
+                <div>
+                  <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
+                    Reset Password
+                  </label>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    placeholder="Kosongkan jika tidak diubah"
+                    value={form.password}
+                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                    className={inputCls}
+                  />
+                  <p className="font-label text-[11px] text-on-surface-variant mt-1 leading-snug">
+                    Isi hanya jika admin prodi lupa password. Minimal 8 karakter; bagikan
+                    kredensial baru ke admin terkait.
+                  </p>
+                </div>
               )}
               <div>
                 <label className="font-label text-sm text-on-surface-variant mb-1.5 block">
@@ -469,7 +480,7 @@ export default function ManageAdminsPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-surface-container-low">
-                  {["Nama", "Email", "Prodi", "Status Integrasi", "Aksi"].map((h) => (
+                  {["Nama", "Email", "Prodi", "Aksi"].map((h) => (
                     <th key={h} className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-6 py-4 ${h === "Aksi" ? "text-right" : "text-left"}`}>{h}</th>
                   ))}
                 </tr>
@@ -493,35 +504,6 @@ export default function ManageAdminsPage() {
                     <td className="px-6 py-4 font-label text-sm text-on-surface-variant whitespace-nowrap">
                       {a.prodi?.name ?? "—"}
                     </td>
-                    <td className="px-6 py-4">
-                      {a.prodi_id ? (
-                        (() => {
-                          const current = (a.prodi?.integration_status ?? "planned") as IntegrationStatus;
-                          const style = INTEGRATION_STATUSES.find((s) => s.value === current) ?? INTEGRATION_STATUSES[0];
-                          return (
-                            <Select
-                              value={current}
-                              onValueChange={(v) => handleChangeIntegration(a.prodi_id!, v as IntegrationStatus)}
-                            >
-                              <SelectTrigger
-                                className={`h-8 w-44 rounded-full border-none font-label text-xs font-semibold ${style.className}`}
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {INTEGRATION_STATUSES.map((s) => (
-                                  <SelectItem key={s.value} value={s.value}>
-                                    {s.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          );
-                        })()
-                      ) : (
-                        <span className="font-label text-xs text-on-surface-variant">—</span>
-                      )}
-                    </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => openEdit(a)} className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors">
@@ -536,7 +518,7 @@ export default function ManageAdminsPage() {
                 ))}
                 {!loading && filtered.length === 0 && (
                   <tr className="border-t border-surface-variant">
-                    <td colSpan={5} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
+                    <td colSpan={4} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
                       {adminList.length === 0 ? "Belum ada admin." : "Tidak ada yang cocok."}
                     </td>
                   </tr>

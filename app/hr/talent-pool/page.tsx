@@ -1,9 +1,7 @@
 "use client";
 
 import Icon from "@/components/ui/Icon";
-import CompetencyInsight from "@/components/hr/CompetencyInsight";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
   Select,
   SelectContent,
@@ -12,93 +10,39 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  inviteStatusColor,
-  inviteStatusLabel,
+  jobStatusColor,
+  jobStatusLabel,
   matchColorClass,
-  matchInRange,
-  matchRangeOptions,
-  type InviteStatus,
+  type JobStatus,
 } from "@/lib/hr-mock";
-import { bestMatchJob, gradesByCloId, rbcByJobId, studentSkills } from "@/lib/hr-match";
 import {
-  cancelInvitation,
-  inviteTalent,
-  type JobWithSkills,
-  type TalentCLOGrade,
-  type TalentInvitation,
-  type TalentStudent,
-} from "@/lib/supabase/hr-queries";
-import {
-  getJobMatchBreakdown,
-  type ReqMatchBreakdown,
-} from "@/lib/supabase/student-queries";
-import { hrDataMutators } from "@/lib/supabase/hrDataStore";
-import { reportHrError } from "@/lib/supabase/hrErrors";
+  gradesByCloId,
+  matchScoreFromRbc,
+  rbcByJobId,
+} from "@/lib/hr-match";
+import type { TalentCLOGrade } from "@/lib/supabase/hr-queries";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useHRData } from "../HRDataProvider";
 
-interface TalentRow {
-  talent: TalentStudent;
-  grades: TalentCLOGrade[];
-  bestJob: JobWithSkills | null;
-  matchScore: number;
-  skills: string[];
-  invite: TalentInvitation | null;
-  uiStatus: InviteStatus;
-  prodiName: string;
+// Per-job aggregate of the passive talent pool: how many active students match
+// this job's qualifications, and how strong the best fit is. `hasReq` is false
+// when the job has no embedded requirements yet (matching impossible).
+interface JobPoolStats {
+  hasReq: boolean;
+  total: number;
+  strong: number; // match ≥ 85%
+  good: number; // match ≥ 70%
+  top: number; // highest match score, 0 when none
+  invited: number;
 }
 
 export default function TalentPoolPage() {
-  const { hr, company, jobs, talents, talentGrades, reqBestClos, invitations, prodiNames, loading, error } =
+  const { company, jobs, talents, talentGrades, reqBestClos, invitations, loading, error } =
     useHRData();
 
   const [search, setSearch] = useState("");
-  const [matchFilter, setMatchFilter] = useState("all");
-  const [prodiFilter, setProdiFilter] = useState("all");
-  const [jobFilter, setJobFilter] = useState("all");
-  const [skillFilter, setSkillFilter] = useState("all");
-  const [inviteFilter, setInviteFilter] = useState("all");
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [inviteJobId, setInviteJobId] = useState<string>("");
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  // Per-requirement CLO breakdown for a talent vs their best-match job — same
-  // RPC the student job-detail page uses (student_job_match_breakdown). Cached
-  // per (talent, job) so every talent fetches at most once and re-opening one is
-  // instant. We also prefetch the visible talents below, so opening any of them
-  // shows the analysis immediately instead of one being instant and the next
-  // flashing a loader.
-  type BreakdownEntry = { rows: ReqMatchBreakdown[]; status: "ready" | "error" };
-  const [breakdownCache, setBreakdownCache] = useState<Map<string, BreakdownEntry>>(
-    new Map(),
-  );
-  const inFlight = useRef<Set<string>>(new Set());
-
-  const breakdownKey = (talentId: string, jobId: string) => `${talentId}:${jobId}`;
-
-  const fetchBreakdown = useCallback((talentId: string, jobId: string) => {
-    const key = breakdownKey(talentId, jobId);
-    if (inFlight.current.has(key)) return;
-    inFlight.current.add(key);
-    getJobMatchBreakdown(talentId, jobId)
-      .then((rows) =>
-        setBreakdownCache((prev) => new Map(prev).set(key, { rows, status: "ready" })),
-      )
-      .catch(() =>
-        setBreakdownCache((prev) =>
-          new Map(prev).set(key, { rows: [], status: "error" }),
-        ),
-      )
-      .finally(() => inFlight.current.delete(key));
-  }, []);
-
-  const activeJobs = useMemo(
-    () => jobs.filter((j) => j.status === "active" || j.status === "closing"),
-    [jobs],
-  );
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const gradesByStudent = useMemo(() => {
     const map = new Map<string, TalentCLOGrade[]>();
@@ -110,189 +54,93 @@ export default function TalentPoolPage() {
     return map;
   }, [talentGrades]);
 
-  // requirement→best-CLO rows grouped by job, shared across all talent rows.
+  // Precompute each student's cloId→grade map once — reused across every job.
+  const gradeMapByStudent = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    talents.forEach((t) => {
+      map.set(t.id, gradesByCloId(gradesByStudent.get(t.id) ?? []));
+    });
+    return map;
+  }, [talents, gradesByStudent]);
+
   const rbcByJob = useMemo(() => rbcByJobId(reqBestClos), [reqBestClos]);
 
-  const inviteByStudent = useMemo(() => {
-    const map = new Map<string, TalentInvitation>();
+  const invitedByJob = useMemo(() => {
+    const map = new Map<string, number>();
     invitations.forEach((i) => {
-      if (i.student_id) map.set(i.student_id, i);
+      if (i.job_id) map.set(i.job_id, (map.get(i.job_id) ?? 0) + 1);
     });
     return map;
   }, [invitations]);
 
-  const rows = useMemo<TalentRow[]>(() => {
-    return talents.map((t) => {
-      const grades = gradesByStudent.get(t.id) ?? [];
-      const best = bestMatchJob(gradesByCloId(grades), activeJobs, rbcByJob);
-      const skills = studentSkills(grades);
-      const invite = inviteByStudent.get(t.id) ?? null;
-      const uiStatus: InviteStatus = invite ? invite.status : "not_contacted";
-      return {
-        talent: t,
-        grades,
-        bestJob: best?.job ?? null,
-        matchScore: best?.score ?? 0,
-        skills,
-        invite,
-        uiStatus,
-        prodiName: t.prodi_id ? prodiNames[t.prodi_id] ?? "—" : "—",
-      };
+  const statsByJob = useMemo(() => {
+    const map = new Map<string, JobPoolStats>();
+    jobs.forEach((job) => {
+      const rbc = rbcByJob.get(job.id) ?? [];
+      if (rbc.length === 0) {
+        map.set(job.id, {
+          hasReq: false,
+          total: 0,
+          strong: 0,
+          good: 0,
+          top: 0,
+          invited: invitedByJob.get(job.id) ?? 0,
+        });
+        return;
+      }
+      let strong = 0;
+      let good = 0;
+      let top = 0;
+      talents.forEach((t) => {
+        const score = matchScoreFromRbc(gradeMapByStudent.get(t.id) ?? new Map(), rbc) ?? 0;
+        if (score >= 85) strong += 1;
+        if (score >= 70) good += 1;
+        if (score > top) top = score;
+      });
+      map.set(job.id, {
+        hasReq: true,
+        total: talents.length,
+        strong,
+        good,
+        top,
+        invited: invitedByJob.get(job.id) ?? 0,
+      });
     });
-  }, [talents, gradesByStudent, activeJobs, rbcByJob, inviteByStudent, prodiNames]);
-
-  const allSkills = useMemo(() => {
-    const set = new Set<string>();
-    rows.forEach((r) => r.skills.forEach((s) => set.add(s)));
-    return [...set].sort();
-  }, [rows]);
-
-  const prodiOptions = useMemo(() => {
-    const set = new Set<string>();
-    rows.forEach((r) => {
-      if (r.prodiName && r.prodiName !== "—") set.add(r.prodiName);
-    });
-    return [...set].sort();
-  }, [rows]);
+    return map;
+  }, [jobs, rbcByJob, talents, gradeMapByStudent, invitedByJob]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return rows
-      .filter((r) => {
+    return jobs
+      .filter((j) => {
         const matchesSearch =
           !q ||
-          r.talent.name.toLowerCase().includes(q) ||
-          r.talent.nim.toLowerCase().includes(q) ||
-          r.prodiName.toLowerCase().includes(q);
-        const matchesMatch = matchInRange(r.matchScore, matchFilter);
-        const matchesProdi = prodiFilter === "all" || r.prodiName === prodiFilter;
-        const matchesJob = jobFilter === "all" || r.bestJob?.id === jobFilter;
-        const matchesSkill = skillFilter === "all" || r.skills.includes(skillFilter);
-        const matchesInvite =
-          inviteFilter === "all" || r.uiStatus === inviteFilter;
-        return (
-          matchesSearch &&
-          matchesMatch &&
-          matchesProdi &&
-          matchesJob &&
-          matchesSkill &&
-          matchesInvite
-        );
+          j.title.toLowerCase().includes(q) ||
+          (j.location ?? "").toLowerCase().includes(q);
+        const matchesStatus = statusFilter === "all" || j.status === statusFilter;
+        return matchesSearch && matchesStatus;
       })
-      .sort((a, b) => b.matchScore - a.matchScore);
-  }, [rows, search, matchFilter, prodiFilter, jobFilter, skillFilter, inviteFilter]);
+      // Jobs with a stronger best-match float to the top; jobs without
+      // requirements sink to the bottom.
+      .sort((a, b) => (statsByJob.get(b.id)?.top ?? 0) - (statsByJob.get(a.id)?.top ?? 0));
+  }, [jobs, search, statusFilter, statsByJob]);
 
-  const total = rows.length;
-  const notContacted = rows.filter((r) => r.uiStatus === "not_contacted").length;
-  const invitedCount = rows.filter((r) => r.uiStatus === "invited").length;
-  const respondedCount = rows.filter((r) => r.uiStatus === "responded").length;
+  const activeCount = jobs.filter(
+    (j) => j.status === "active" || j.status === "closing",
+  ).length;
+  const jobsWithoutReq = jobs.filter(
+    (j) => (statsByJob.get(j.id)?.hasReq ?? false) === false,
+  ).length;
 
-  const activeFilterCount = [
-    matchFilter !== "all",
-    prodiFilter !== "all",
-    jobFilter !== "all",
-    skillFilter !== "all",
-    inviteFilter !== "all",
-  ].filter(Boolean).length;
-
-  const resetFilters = () => {
-    setMatchFilter("all");
-    setProdiFilter("all");
-    setJobFilter("all");
-    setSkillFilter("all");
-    setInviteFilter("all");
-  };
-
-  const selected = filtered.find((r) => r.talent.id === selectedId)
-    ?? rows.find((r) => r.talent.id === selectedId)
-    ?? null;
-
-  const insightTalentId = selected?.talent.id ?? null;
-  const insightJobId = selected?.bestJob?.id ?? null;
-
-  // Fetch the open talent's CLO breakdown if it isn't cached yet. Reuses the
-  // student-side RPC so the numbers match /student/jobs/[id].
-  useEffect(() => {
-    if (!insightTalentId || !insightJobId) return;
-    if (breakdownCache.has(breakdownKey(insightTalentId, insightJobId))) return;
-    fetchBreakdown(insightTalentId, insightJobId);
-  }, [insightTalentId, insightJobId, breakdownCache, fetchBreakdown]);
-
-  // Background-prefetch breakdowns for the visible (filtered, score-sorted)
-  // talents so opening any of them is instant. Capped so a large pool doesn't
-  // fire hundreds of RPCs at once; the rest still load on demand from the effect
-  // above. Already-cached / in-flight pairs are skipped.
-  useEffect(() => {
-    filtered
-      .filter((r) => r.bestJob)
-      .slice(0, 25)
-      .forEach((r) => {
-        if (!breakdownCache.has(breakdownKey(r.talent.id, r.bestJob!.id))) {
-          fetchBreakdown(r.talent.id, r.bestJob!.id);
-        }
-      });
-  }, [filtered, breakdownCache, fetchBreakdown]);
-
-  const currentEntry =
-    insightTalentId && insightJobId
-      ? breakdownCache.get(breakdownKey(insightTalentId, insightJobId))
-      : undefined;
-  const breakdown = currentEntry?.status === "ready" ? currentEntry.rows : [];
-  const breakdownLoading = !!insightJobId && !currentEntry;
-  const breakdownError = currentEntry?.status === "error";
-
-  const openTalent = (row: TalentRow) => {
-    setSelectedId(row.talent.id);
-    setInviteJobId(row.bestJob?.id ?? activeJobs[0]?.id ?? "");
-    setActionError(null);
-  };
-
-  const closeTalent = () => {
-    setSelectedId(null);
-    setActionError(null);
-  };
-
-  const handleInvite = async () => {
-    if (!selected || !hr || !inviteJobId) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      const inv = await inviteTalent(hr.id, selected.talent.id, inviteJobId);
-      hrDataMutators.setInvitations((prev) => {
-        const without = prev.filter((p) => p.id !== inv.id);
-        return [...without, inv];
-      });
-    } catch (e) {
-      setActionError(reportHrError(e, "talentPool.invite"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleCancelInvite = async () => {
-    if (!selected || !selected.invite) return;
-    setBusy(true);
-    setActionError(null);
-    const inviteId = selected.invite.id;
-    try {
-      await cancelInvitation(inviteId);
-      hrDataMutators.setInvitations((prev) => prev.filter((p) => p.id !== inviteId));
-    } catch (e) {
-      setActionError(reportHrError(e, "talentPool.cancelInvite"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (loading && rows.length === 0) {
+  if (loading && jobs.length === 0) {
     return (
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="space-y-2">
           <Skeleton className="h-8 w-64 max-w-full" />
           <Skeleton className="h-4 w-full max-w-2xl" />
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
               className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border space-y-2"
@@ -302,516 +150,232 @@ export default function TalentPoolPage() {
             </div>
           ))}
         </div>
-        <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border space-y-3">
-          <Skeleton className="h-12 w-full rounded-xl" />
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full rounded-xl" />
-            ))}
-          </div>
-        </div>
-        <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
-          <table className="w-full">
-            <tbody>
-              <TableRowsSkeleton rows={6} cols={6} />
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border space-y-3"
+            >
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-6 w-1/2" />
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-10 w-full rounded-xl" />
+            </div>
+          ))}
         </div>
       </div>
     );
   }
 
   return (
-    <>
-      {selected && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-          onClick={closeTalent}
-        >
-          <div
-            className="bg-surface-container-lowest rounded-2xl w-full max-w-xl shadow-xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="space-y-1">
+        <div className="inline-flex items-center gap-2 px-3 py-1 bg-tertiary-fixed rounded-full font-label text-xs font-semibold text-tertiary">
+          <Icon name="diversity_3" size={14} filled />
+          Talent Pool per Lowongan
+        </div>
+        <h1 className="font-headline text-3xl font-bold text-on-background">
+          Talent Pool
+        </h1>
+        <p className="font-body text-on-surface-variant max-w-2xl">
+          Pilih salah satu lowongan {company?.name ? `${company.name} ` : ""}untuk
+          melihat mahasiswa aktif yang paling cocok dengan kualifikasinya. Untuk
+          pelamar aktif, lihat{" "}
+          <Link
+            href="/hr/applicants"
+            className="text-primary font-semibold hover:underline"
           >
-            <div className="p-6 border-b border-outline-variant/30 flex items-start justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-tertiary-fixed rounded-full flex items-center justify-center">
-                  <Icon
-                    name="auto_awesome"
-                    className="text-tertiary"
-                    size={28}
-                    filled
-                  />
-                </div>
-                <div>
-                  <h2 className="font-headline text-xl font-bold text-on-background">
-                    {selected.talent.name}
-                  </h2>
-                  <p className="font-body text-sm text-on-surface-variant">
-                    NIM {selected.talent.nim} · {selected.prodiName}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <span
-                      className={`px-2 py-0.5 rounded-full font-label text-xs font-bold ${matchColorClass(selected.matchScore)}`}
-                    >
-                      {selected.matchScore}% match
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full font-label text-xs font-semibold ${inviteStatusColor[selected.uiStatus]}`}
-                    >
-                      {inviteStatusLabel[selected.uiStatus]}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={closeTalent}
-                className="p-2 hover:bg-surface-container rounded-lg transition-colors shrink-0"
-              >
-                <Icon name="close" className="text-on-surface-variant" />
-              </button>
-            </div>
+            Daftar Pelamar
+          </Link>
+          .
+        </p>
+      </div>
 
-            <div className="p-6 space-y-5">
-              {actionError && (
-                <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
-                  {actionError}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <Detail icon="badge" label="NIM" value={selected.talent.nim} />
-                <Detail
-                  icon="event"
-                  label="Angkatan"
-                  value={selected.talent.angkatan?.toString() ?? "—"}
-                />
-                <Detail
-                  icon="school"
-                  label="Program Studi"
-                  value={selected.prodiName}
-                />
-                <Detail
-                  icon="mail"
-                  label="Email"
-                  value={selected.talent.email ?? "—"}
-                />
-                <Detail
-                  icon="star"
-                  label="Cocok untuk"
-                  value={selected.bestJob?.title ?? "—"}
-                />
-                <Detail
-                  icon="bolt"
-                  label="Status"
-                  value={selected.talent.status}
-                />
-              </div>
-
-              <CompetencyInsight
-                key={selected.talent.id}
-                jobTitle={selected.bestJob?.title ?? null}
-                breakdown={breakdown}
-                loading={breakdownLoading}
-                error={breakdownError}
-              />
-
-              {selected.uiStatus === "not_contacted" && activeJobs.length > 0 && (
-                <div className="p-4 rounded-xl bg-primary-fixed/40 border border-primary/20 space-y-3">
-                  <p className="font-label text-sm font-semibold text-primary">
-                    Undang kandidat ini untuk melamar:
-                  </p>
-                  <Select value={inviteJobId} onValueChange={setInviteJobId}>
-                    <SelectTrigger className="h-11 w-full bg-surface-container-lowest">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {activeJobs.map((j) => (
-                        <SelectItem key={j.id} value={j.id}>
-                          {j.title}
-                          {j.location ? ` — ${j.location}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {selected.uiStatus === "not_contacted" && activeJobs.length === 0 && (
-                <div className="p-4 rounded-xl bg-surface-container-low text-center">
-                  <p className="font-body text-sm text-on-surface-variant">
-                    Belum ada lowongan aktif untuk mengundang kandidat.{" "}
-                    <Link href="/hr/jobs?new=1" className="text-primary hover:underline">
-                      Buat lowongan
-                    </Link>{" "}
-                    terlebih dahulu.
-                  </p>
-                </div>
-              )}
-
-              {selected.uiStatus !== "not_contacted" && (
-                <div className="p-4 rounded-xl bg-surface-container-low">
-                  <p className="font-label text-sm font-semibold text-on-background mb-1">
-                    Status undangan: {inviteStatusLabel[selected.uiStatus]}
-                  </p>
-                  <p className="font-body text-xs text-on-surface-variant">
-                    {selected.uiStatus === "invited" &&
-                      `Undangan telah dikirim. Menunggu respon dari kandidat.`}
-                    {selected.uiStatus === "responded" &&
-                      "Kandidat telah merespon undangan Anda."}
-                    {selected.uiStatus === "declined" &&
-                      "Kandidat menolak undangan Anda."}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="p-6 pt-0 flex gap-3">
-              <button
-                type="button"
-                onClick={closeTalent}
-                className="flex-1 py-3 rounded-xl border border-outline/30 font-label text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors"
-              >
-                Tutup
-              </button>
-              {selected.uiStatus === "not_contacted" ? (
-                <button
-                  type="button"
-                  onClick={handleInvite}
-                  disabled={busy || !inviteJobId || activeJobs.length === 0}
-                  className="flex-1 btn-gradient font-label font-bold rounded-xl py-3 flex items-center justify-center gap-2 disabled:opacity-60"
-                >
-                  <Icon name="send" size={18} />
-                  {busy ? "Mengirim..." : "Kirim Undangan"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleCancelInvite}
-                  disabled={busy}
-                  className="flex-1 py-3 rounded-xl bg-surface-container text-on-surface-variant hover:bg-surface-container-high font-label font-semibold transition-colors disabled:opacity-60"
-                >
-                  {busy ? "Membatalkan..." : "Batalkan Undangan"}
-                </button>
-              )}
-            </div>
-          </div>
+      {error && (
+        <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
+          {error}
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto space-y-6">
-        <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-tertiary-fixed rounded-full font-label text-xs font-semibold text-tertiary">
-            <Icon name="auto_awesome" size={14} filled />
-            Kandidat Pasif (Match-based)
-          </div>
-          <h1 className="font-headline text-3xl font-bold text-on-background">
-            Talent Pool
-          </h1>
-          <p className="font-body text-on-surface-variant max-w-2xl">
-            Mahasiswa aktif yang cocok dengan lowongan {company?.name ?? "perusahaan Anda"}{" "}
-            berdasarkan skor match. Untuk pelamar aktif, lihat{" "}
-            <Link
-              href="/hr/applicants"
-              className="text-primary font-semibold hover:underline"
-            >
-              Daftar Pelamar
-            </Link>
-            .
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatBox label="Lowongan Aktif" value={activeCount} tone="green" />
+        <StatBox label="Kandidat Aktif" value={talents.length} tone="tertiary" />
+        <StatBox label="Tanpa Kualifikasi" value={jobsWithoutReq} tone="on-surface" />
+      </div>
+
+      <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border flex flex-col lg:flex-row gap-3">
+        <div className="relative flex-1">
+          <Icon
+            name="search"
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant"
+          />
+          <input
+            type="text"
+            placeholder="Cari lowongan berdasarkan judul atau lokasi..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-surface-container-low border-none rounded-xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm placeholder:text-outline"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-12 lg:min-w-44 w-auto">
+            <Icon name="filter_list" size={16} className="text-on-surface-variant" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Semua Status</SelectItem>
+            {(Object.keys(jobStatusLabel) as JobStatus[]).map((s) => (
+              <SelectItem key={s} value={s}>
+                {jobStatusLabel[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-surface-container-lowest rounded-2xl p-10 text-center shadow-ambient ghost-border">
+          <Icon
+            name="work_off"
+            size={40}
+            className="text-on-surface-variant mx-auto mb-3"
+          />
+          <p className="font-body text-sm text-on-surface-variant">
+            {jobs.length === 0 ? (
+              <>
+                Belum ada lowongan.{" "}
+                <Link href="/hr/jobs?new=1" className="text-primary hover:underline">
+                  Buat lowongan
+                </Link>{" "}
+                terlebih dahulu untuk membangun talent pool.
+              </>
+            ) : (
+              "Tidak ada lowongan yang cocok dengan pencarian."
+            )}
           </p>
         </div>
-
-        {error && (
-          <div className="px-4 py-3 bg-error-container rounded-xl text-error font-label text-sm">
-            {error}
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatBox label="Total Talent" value={total} tone="tertiary" />
-          <StatBox label="Belum Diundang" value={notContacted} tone="on-surface" />
-          <StatBox label="Sudah Diundang" value={invitedCount} tone="primary" />
-          <StatBox label="Merespon" value={respondedCount} tone="green" />
-        </div>
-
-        <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border space-y-3">
-          <div className="relative">
-            <Icon
-              name="search"
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant"
-            />
-            <input
-              type="text"
-              placeholder="Cari nama, NIM, atau program studi..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-surface-container-low border-none rounded-xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/40 font-body text-sm placeholder:text-outline"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <Select value={matchFilter} onValueChange={setMatchFilter}>
-              <SelectTrigger className="h-12 w-full">
-                <Icon name="bolt" size={16} className="text-on-surface-variant" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {matchRangeOptions.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={jobFilter} onValueChange={setJobFilter}>
-              <SelectTrigger className="h-12 w-full">
-                <Icon name="work" size={16} className="text-on-surface-variant" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Lowongan</SelectItem>
-                {activeJobs.map((j) => (
-                  <SelectItem key={j.id} value={j.id}>
-                    {j.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={prodiFilter} onValueChange={setProdiFilter}>
-              <SelectTrigger className="h-12 w-full">
-                <Icon name="school" size={16} className="text-on-surface-variant" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Prodi</SelectItem>
-                {prodiOptions.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {p}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={skillFilter} onValueChange={setSkillFilter}>
-              <SelectTrigger className="h-12 w-full">
-                <Icon name="code" size={16} className="text-on-surface-variant" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Skill</SelectItem>
-                {allSkills.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={inviteFilter} onValueChange={setInviteFilter}>
-              <SelectTrigger className="h-12 w-full">
-                <Icon
-                  name="forward_to_inbox"
-                  size={16}
-                  className="text-on-surface-variant"
-                />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Undangan</SelectItem>
-                <SelectItem value="not_contacted">Belum Diundang</SelectItem>
-                <SelectItem value="invited">Diundang</SelectItem>
-                <SelectItem value="responded">Merespon</SelectItem>
-                <SelectItem value="declined">Menolak</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {activeFilterCount > 0 && (
-            <div className="flex items-center justify-between pt-1">
-              <p className="font-label text-xs text-on-surface-variant">
-                {activeFilterCount} filter aktif · {filtered.length} dari {rows.length} talent
-              </p>
-              <button
-                onClick={resetFilters}
-                className="font-label text-xs text-primary hover:underline flex items-center gap-1"
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filtered.map((job) => {
+            const stats = statsByJob.get(job.id);
+            const hasReq = stats?.hasReq ?? false;
+            return (
+              <Link
+                key={job.id}
+                href={`/hr/talent-pool/${job.id}`}
+                className="group bg-surface-container-lowest rounded-2xl p-5 shadow-ambient ghost-border hover:shadow-md transition-shadow flex flex-col"
               >
-                <Icon name="close" size={14} />
-                Reset filter
-              </button>
-            </div>
-          )}
-        </div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`font-label text-xs font-semibold px-2.5 py-0.5 rounded-full ${jobStatusColor[job.status as JobStatus] ?? ""}`}
+                    >
+                      {jobStatusLabel[job.status as JobStatus] ?? job.status}
+                    </span>
+                    {job.job_type && (
+                      <span className="font-label text-xs text-on-surface-variant px-2 py-0.5 rounded-full bg-surface-container">
+                        {job.job_type}
+                      </span>
+                    )}
+                  </div>
+                  {hasReq && stats && stats.top > 0 && (
+                    <span
+                      className={`px-2 py-0.5 rounded-full font-label text-xs font-bold shrink-0 ${matchColorClass(stats.top)}`}
+                    >
+                      Top {stats.top}%
+                    </span>
+                  )}
+                </div>
 
-        <div className="bg-surface-container-lowest rounded-2xl shadow-ambient ghost-border overflow-hidden">
-          <div className="w-full">
-            <table className="w-full table-fixed">
-              <colgroup>
-                <col className="w-[26%]" />
-                <col className="w-[8%]" />
-                <col className="w-[22%]" />
-                <col className="w-[22%]" />
-                <col className="w-[14%]" />
-                <col className="w-[8%]" />
-              </colgroup>
-              <thead>
-                <tr className="bg-surface-container-low">
-                  {[
-                    "Talent",
-                    "Match",
-                    "Lowongan",
-                    "Skills",
-                    "Undangan",
-                    "Aksi",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className={`font-label text-xs text-on-surface-variant uppercase tracking-wider px-4 py-3 ${h === "Aksi" ? "text-right" : "text-left"}`}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr
-                    key={r.talent.id}
-                    className="hover:bg-surface-container-low transition-colors border-t border-surface-variant"
-                  >
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 bg-tertiary-fixed rounded-full flex items-center justify-center shrink-0">
-                          <Icon
-                            name="auto_awesome"
-                            className="text-tertiary"
-                            size={16}
-                            filled
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-body text-sm font-semibold text-on-background truncate">
-                            {r.talent.name}
-                          </p>
-                          <p className="font-label text-xs text-on-surface-variant truncate">
-                            NIM {r.talent.nim} · {r.prodiName}
-                          </p>
-                          <p className="font-label text-xs text-on-surface-variant mt-0.5">
-                            Angkatan {r.talent.angkatan ?? "—"}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <span
-                        className={`px-2 py-0.5 rounded-full font-label text-xs font-bold ${matchColorClass(r.matchScore)}`}
-                      >
-                        {r.matchScore}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <p className="font-label text-sm font-semibold text-on-background truncate">
-                        {r.bestJob?.title ?? "—"}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex flex-wrap gap-1.5">
-                        {r.skills.slice(0, 2).map((s) => (
-                          <span
-                            key={s}
-                            className="px-2 py-0.5 bg-surface-container rounded-md font-label text-xs text-on-surface-variant"
-                          >
-                            {s}
-                          </span>
-                        ))}
-                        {r.skills.length > 2 && (
-                          <span className="px-2 py-0.5 font-label text-xs text-on-surface-variant">
-                            +{r.skills.length - 2}
-                          </span>
-                        )}
-                        {r.skills.length === 0 && (
-                          <span className="font-label text-xs text-on-surface-variant">—</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <span
-                        className={`px-2 py-0.5 rounded-full font-label text-xs font-semibold ${inviteStatusColor[r.uiStatus]}`}
-                      >
-                        {inviteStatusLabel[r.uiStatus]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right align-top">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => openTalent(r)}
-                          className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-colors"
-                          title="Lihat detail"
-                        >
-                          <Icon name="visibility" size={18} />
-                        </button>
-                        {r.uiStatus === "not_contacted" && activeJobs.length > 0 && (
-                          <button
-                            onClick={() => openTalent(r)}
-                            className="p-2 text-primary hover:bg-surface-container-high rounded-lg transition-colors"
-                            aria-label="Undang kandidat"
-                          >
-                            <Icon name="send" size={18} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr className="border-t border-surface-variant">
-                    <td
-                      colSpan={6}
-                      className="px-6 py-10 text-center font-body text-sm text-on-surface-variant"
-                    >
-                      {rows.length === 0
-                        ? "Belum ada mahasiswa aktif di sistem."
-                        : "Tidak ada talent yang cocok dengan filter."}
-                    </td>
-                  </tr>
+                <h3 className="font-headline text-lg font-bold text-on-background mt-2 group-hover:text-primary transition-colors">
+                  {job.title}
+                </h3>
+                {job.location && (
+                  <span className="inline-flex items-center gap-1.5 font-label text-xs text-on-surface-variant mt-1">
+                    <Icon name="location_on" size={14} /> {job.location}
+                  </span>
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
 
-        {!hr && (
-          <div className="px-4 py-3 bg-surface-container-low rounded-xl flex justify-center">
-            <Skeleton className="h-4 w-40" />
-          </div>
-        )}
-      </div>
-    </>
+                <div className="mt-4 flex-1">
+                  {hasReq && stats ? (
+                    stats.strong > 0 || stats.good > 0 || stats.invited > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {stats.strong > 0 && (
+                          <PoolChip
+                            icon="workspace_premium"
+                            label={`${stats.strong} kandidat kuat`}
+                            tone="green"
+                          />
+                        )}
+                        {stats.good > 0 && (
+                          <PoolChip
+                            icon="thumb_up"
+                            label={`${stats.good} cocok`}
+                            tone="primary"
+                          />
+                        )}
+                        {stats.invited > 0 && (
+                          <PoolChip
+                            icon="forward_to_inbox"
+                            label={`${stats.invited} diundang`}
+                            tone="neutral"
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 font-label text-xs text-on-surface-variant">
+                        <Icon name="person_search" size={14} />
+                        Belum ada kandidat yang cocok
+                      </span>
+                    )
+                  ) : (
+                    <div className="inline-flex items-center gap-1.5 font-label text-xs text-amber-700 bg-amber-50 rounded-full px-2.5 py-1">
+                      <Icon name="warning" size={14} />
+                      Belum ada kualifikasi
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-outline-variant/30 flex items-center justify-between">
+                  <span className="font-label text-sm font-semibold text-primary">
+                    {hasReq ? "Lihat Talent Pool" : "Tambah Kualifikasi"}
+                  </span>
+                  <Icon
+                    name="arrow_forward"
+                    size={18}
+                    className="text-primary group-hover:translate-x-0.5 transition-transform"
+                  />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
-function Detail({
+function PoolChip({
   icon,
   label,
-  value,
+  tone,
 }: {
   icon: string;
   label: string;
-  value: string;
+  tone: "green" | "primary" | "neutral";
 }) {
+  const toneClass = {
+    green: "text-green-700 bg-green-50",
+    primary: "text-primary bg-primary-fixed",
+    neutral: "text-on-surface-variant bg-surface-container",
+  }[tone];
   return (
-    <div className="flex items-start gap-2">
-      <Icon name={icon} size={16} className="text-on-surface-variant mt-0.5" />
-      <div className="min-w-0">
-        <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant">
-          {label}
-        </p>
-        <p className="font-body text-sm font-medium text-on-background truncate">
-          {value}
-        </p>
-      </div>
-    </div>
+    <span
+      className={`inline-flex items-center gap-1.5 font-label text-xs font-semibold rounded-full px-2.5 py-1 ${toneClass}`}
+    >
+      <Icon name={icon} size={13} />
+      {label}
+    </span>
   );
 }
 
@@ -837,4 +401,3 @@ function StatBox({
     </div>
   );
 }
-

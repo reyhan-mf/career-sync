@@ -91,6 +91,24 @@ export async function createAdminUser(adminUser: {
   return (data as { admin: AdminUserWithProdi }).admin;
 }
 
+// Reset an existing prodi admin's login password. Runs through the
+// `reset-admin-password` edge function because changing another user's auth
+// password requires the service role — the same privileged pattern as
+// `provision-admin`. `adminId` is the admin_users row id (the function resolves
+// its auth user_id server-side).
+export async function resetAdminPassword(adminId: string, password: string): Promise<void> {
+  const { data, error } = await supabase.functions.invoke("reset-admin-password", {
+    body: { admin_id: adminId, password },
+  });
+  if (error) {
+    const fnMsg = (data as { error?: string } | null)?.error;
+    throw new Error(fnMsg ?? error.message);
+  }
+  if (data && typeof data === "object" && "error" in data && data.error) {
+    throw new Error(String(data.error));
+  }
+}
+
 export async function updateAdminUser(
   id: string,
   updates: { name?: string; prodi_id?: string | null },
