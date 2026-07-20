@@ -1,4 +1,6 @@
+import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "./client";
+import { fetchAllPages } from "./paginate";
 import { encodeRequirements } from "@/lib/encoding";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -300,9 +302,12 @@ export async function updateJob(
   return data as Job;
 }
 
+// job_skills, requirements, talent_invitations and applications all cascade
+// from jobs (see supabase/migrations/20260714_job_delete_cascade.sql), so one
+// statement removes the job and its children atomically. Deleting the children
+// by hand first — as this used to — is not a transaction: if the final delete
+// failed, the job kept existing with its qualifications already destroyed.
 export async function deleteJob(id: string) {
-  await supabase.from("job_skills").delete().eq("job_id", id);
-  await supabase.from("requirements").delete().eq("job_id", id);
   const { error } = await supabase.from("jobs").delete().eq("id", id);
   if (error) throw error;
 }
@@ -414,12 +419,17 @@ export async function getTalentStudents(): Promise<TalentStudent[]> {
 
 export async function getTalentGrades(studentIds: string[]): Promise<TalentCLOGrade[]> {
   if (studentIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from("student_clos")
-    .select("student_id, clo_id, grade, clos ( clo_code, clo_text, matkul_id )")
-    .in("student_id", studentIds);
-  if (error) throw error;
-  return (data ?? []) as unknown as TalentCLOGrade[];
+  // One row per (student, CLO) across every talent — blows past PostgREST's
+  // 1000-row cap quickly, and a truncated result silently under-scores talents.
+  return fetchAllPages<TalentCLOGrade>((from, to) =>
+    supabase
+      .from("student_clos")
+      .select("student_id, clo_id, grade, clos ( clo_code, clo_text, matkul_id )")
+      .in("student_id", studentIds)
+      .order("student_id")
+      .order("clo_id")
+      .range(from, to) as unknown as PromiseLike<{ data: TalentCLOGrade[] | null; error: PostgrestError | null }>,
+  );
 }
 
 // req_best_clo rows for the given jobs. `sim` is stored as numeric, which

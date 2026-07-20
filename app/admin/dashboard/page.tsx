@@ -21,7 +21,12 @@ interface AttentionItem {
 interface MKCoverageDetail {
   mk: Matkul;
   cloCount: number;
-  gradedStudentIds: Set<string>;
+  /** studentId → how many of this matkul's CLOs are graded for them. */
+  gradedCloCount: Map<string, number>;
+  /** Students with every CLO graded. This is what "covered" means. */
+  fullyGradedIds: Set<string>;
+  /** Students with at least one grade — used for "no grades at all" checks. */
+  anyGradedIds: Set<string>;
   ratio: number;
 }
 
@@ -41,25 +46,41 @@ export default function AdminDashboard() {
       const mkCloIds = new Set(clos.filter((c) => c.matkul_id === mk.id).map((c) => c.id));
       const cloCount = mkCloIds.size;
       if (cloCount === 0) {
-        return { mk, cloCount: 0, gradedStudentIds: new Set<string>(), ratio: 0 };
+        return {
+          mk,
+          cloCount: 0,
+          gradedCloCount: new Map<string, number>(),
+          fullyGradedIds: new Set<string>(),
+          anyGradedIds: new Set<string>(),
+          ratio: 0,
+        };
       }
-      const gradedIds = new Set(
-        studentClos.filter((sc) => mkCloIds.has(sc.clo_id)).map((sc) => sc.student_id),
-      );
-      const ratio = students.length ? gradedIds.size / students.length : 0;
-      return { mk, cloCount, gradedStudentIds: gradedIds, ratio };
+      // Coverage = students whose CLOs are ALL graded. A student with one CLO
+      // missing is still an unfinished assessment and must not count as done.
+      const gradedCloCount = new Map<string, number>();
+      studentClos.forEach((sc) => {
+        if (!mkCloIds.has(sc.clo_id)) return;
+        gradedCloCount.set(sc.student_id, (gradedCloCount.get(sc.student_id) ?? 0) + 1);
+      });
+      const fullyGradedIds = new Set<string>();
+      const anyGradedIds = new Set<string>();
+      gradedCloCount.forEach((n, studentId) => {
+        anyGradedIds.add(studentId);
+        if (n >= cloCount) fullyGradedIds.add(studentId);
+      });
+      const ratio = students.length ? fullyGradedIds.size / students.length : 0;
+      return { mk, cloCount, gradedCloCount, fullyGradedIds, anyGradedIds, ratio };
     });
   }, [matkuls, clos, studentClos, students]);
 
   const stats = useMemo(() => {
-    const totalNilai = coverageData.reduce((sum, c) => sum + c.gradedStudentIds.size, 0);
     return {
       mahasiswa: students.length,
       clo: clos.length,
       mataKuliah: matkuls.length,
-      nilai: totalNilai,
+      nilai: studentClos.length,
     };
-  }, [students, clos, matkuls, coverageData]);
+  }, [students, clos, matkuls, studentClos]);
 
   const attentionItems = useMemo<AttentionItem[]>(() => {
     const items: AttentionItem[] = [];
@@ -78,7 +99,7 @@ export default function AdminDashboard() {
     }
 
     const gradedStudentIds = new Set<string>();
-    coverageData.forEach((c) => c.gradedStudentIds.forEach((id) => gradedStudentIds.add(id)));
+    coverageData.forEach((c) => c.anyGradedIds.forEach((id) => gradedStudentIds.add(id)));
     const mhsTanpaNilai = students.filter((s) => !gradedStudentIds.has(s.id));
     if (mhsTanpaNilai.length > 0) {
       items.push({
@@ -92,7 +113,7 @@ export default function AdminDashboard() {
     }
 
     const mkSebagian = coverageData.filter(
-      (c) => c.cloCount > 0 && c.ratio > 0 && c.ratio < 1,
+      (c) => c.cloCount > 0 && c.ratio < 1 && c.anyGradedIds.size > 0,
     );
     if (mkSebagian.length > 0) {
       items.push({
@@ -101,7 +122,7 @@ export default function AdminDashboard() {
         count: mkSebagian.length,
         detail: mkSebagian
           .slice(0, 3)
-          .map((c) => `${c.mk.nama} (${c.gradedStudentIds.size}/${students.length})`)
+          .map((c) => `${c.mk.nama} (${c.fullyGradedIds.size}/${students.length})`)
           .join(", "),
         href: "/admin/grades",
         tone: "info",
@@ -335,7 +356,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-3 font-label text-sm text-on-surface-variant">{c.cloCount}</td>
                         <td className="px-6 py-3">
-                          <span className="font-label text-sm font-bold text-on-background">{c.gradedStudentIds.size}</span>
+                          <span className="font-label text-sm font-bold text-on-background">{c.fullyGradedIds.size}</span>
                           <span className="font-label text-xs text-on-surface-variant"> / {students.length}</span>
                         </td>
                         <td className="px-6 py-3">
@@ -362,21 +383,34 @@ export default function AdminDashboard() {
                               </div>
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                                 {students.map((s) => {
-                                  const isGraded = c.gradedStudentIds.has(s.id);
-                                  const status: "lengkap" | "belum" = isGraded ? "lengkap" : "belum";
-                                  const badgeStyle = status === "lengkap"
-                                    ? "bg-green-50 text-green-700"
+                                  const gradedClos = c.gradedCloCount.get(s.id) ?? 0;
+                                  const status: "lengkap" | "sebagian" | "belum" =
+                                    gradedClos >= c.cloCount ? "lengkap" : gradedClos > 0 ? "sebagian" : "belum";
+                                  const badgeStyle =
+                                    status === "lengkap" ? "bg-green-50 text-green-700"
+                                    : status === "sebagian" ? "bg-blue-50 text-blue-700"
                                     : "bg-surface-container text-on-surface-variant";
-                                  const badgeLabel = status === "lengkap" ? "Dinilai" : "Belum";
+                                  const badgeLabel =
+                                    status === "lengkap" ? "Dinilai"
+                                    : status === "sebagian" ? `${gradedClos}/${c.cloCount} CLO`
+                                    : "Belum";
+                                  const iconWrapStyle =
+                                    status === "lengkap" ? "bg-green-50"
+                                    : status === "sebagian" ? "bg-blue-50"
+                                    : "bg-surface-container";
+                                  const iconName =
+                                    status === "lengkap" ? "check_circle"
+                                    : status === "sebagian" ? "pending"
+                                    : "radio_button_unchecked";
+                                  const iconStyle =
+                                    status === "lengkap" ? "text-green-700"
+                                    : status === "sebagian" ? "text-blue-700"
+                                    : "text-on-surface-variant";
                                   return (
                                     <div key={s.id} className="flex items-center justify-between bg-surface-container-lowest rounded-xl px-3.5 py-2.5 ghost-border">
                                       <div className="flex items-center gap-2.5 min-w-0">
-                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${status === "lengkap" ? "bg-green-50" : "bg-surface-container"}`}>
-                                          <Icon
-                                            name={status === "lengkap" ? "check_circle" : "radio_button_unchecked"}
-                                            size={16}
-                                            className={status === "lengkap" ? "text-green-700" : "text-on-surface-variant"}
-                                          />
+                                        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${iconWrapStyle}`}>
+                                          <Icon name={iconName} size={16} className={iconStyle} />
                                         </div>
                                         <div className="min-w-0">
                                           <p className="font-body text-sm font-medium text-on-background truncate">{s.name}</p>

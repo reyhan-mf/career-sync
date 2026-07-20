@@ -1,6 +1,7 @@
 "use client";
 
 import CompetencyInsight from "@/components/hr/CompetencyInsight";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Icon from "@/components/ui/Icon";
 import {
   Select,
@@ -15,7 +16,6 @@ import {
   gradesByCloId,
   matchScoreFromRbc,
   rbcByJobId,
-  studentSkills,
 } from "@/lib/hr-match";
 import {
   inviteStatusColor,
@@ -23,8 +23,6 @@ import {
   jobStatusColor,
   jobStatusLabel,
   matchColorClass,
-  matchInRange,
-  matchRangeOptions,
   type InviteStatus,
   type JobStatus,
 } from "@/lib/hr-mock";
@@ -50,7 +48,6 @@ interface TalentRow {
   talent: TalentStudent;
   grades: TalentCLOGrade[];
   matchScore: number;
-  skills: string[];
   invite: TalentInvitation | null;
   uiStatus: InviteStatus;
   prodiName: string;
@@ -78,14 +75,14 @@ export default function JobTalentPoolPage() {
   );
 
   const [search, setSearch] = useState("");
-  const [matchFilter, setMatchFilter] = useState("all");
   const [prodiFilter, setProdiFilter] = useState("all");
-  const [skillFilter, setSkillFilter] = useState("all");
   const [inviteFilter, setInviteFilter] = useState("all");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Row-level "batalkan undangan" — confirmed before it fires.
+  const [cancelTarget, setCancelTarget] = useState<TalentRow | null>(null);
 
   // Per-requirement CLO breakdown for a talent vs THIS job — same RPC the student
   // job-detail page uses (student_job_match_breakdown). Cached per talent (the
@@ -152,14 +149,12 @@ export default function JobTalentPoolPage() {
     return talents.map((t) => {
       const grades = gradesByStudent.get(t.id) ?? [];
       const score = matchScoreFromRbc(gradesByCloId(grades), rbcForJob) ?? 0;
-      const skills = studentSkills(grades);
       const invite = inviteByStudent.get(t.id) ?? null;
       const uiStatus: InviteStatus = invite ? invite.status : "not_contacted";
       return {
         talent: t,
         grades,
         matchScore: score,
-        skills,
         invite,
         uiStatus,
         prodiName: t.prodi_id ? (prodiNames[t.prodi_id] ?? "—") : "—",
@@ -184,23 +179,14 @@ export default function JobTalentPoolPage() {
           r.talent.name.toLowerCase().includes(q) ||
           r.talent.nim.toLowerCase().includes(q) ||
           r.prodiName.toLowerCase().includes(q);
-        const matchesMatch = matchInRange(r.matchScore, matchFilter);
         const matchesProdi =
           prodiFilter === "all" || r.prodiName === prodiFilter;
-        const matchesSkill =
-          skillFilter === "all" || r.skills.includes(skillFilter);
         const matchesInvite =
           inviteFilter === "all" || r.uiStatus === inviteFilter;
-        return (
-          matchesSearch &&
-          matchesMatch &&
-          matchesProdi &&
-          matchesSkill &&
-          matchesInvite
-        );
+        return matchesSearch && matchesProdi && matchesInvite;
       })
       .sort((a, b) => b.matchScore - a.matchScore);
-  }, [rows, search, matchFilter, prodiFilter, skillFilter, inviteFilter]);
+  }, [rows, search, prodiFilter, inviteFilter]);
 
   const total = rows.length;
   const strongCount = rows.filter((r) => r.matchScore >= 85).length;
@@ -208,16 +194,12 @@ export default function JobTalentPoolPage() {
   const respondedCount = rows.filter((r) => r.uiStatus === "responded").length;
 
   const activeFilterCount = [
-    matchFilter !== "all",
     prodiFilter !== "all",
-    skillFilter !== "all",
     inviteFilter !== "all",
   ].filter(Boolean).length;
 
   const resetFilters = () => {
-    setMatchFilter("all");
     setProdiFilter("all");
-    setSkillFilter("all");
     setInviteFilter("all");
   };
 
@@ -284,21 +266,25 @@ export default function JobTalentPoolPage() {
     }
   };
 
-  const handleCancelInvite = async () => {
-    if (!selected || !selected.invite) return;
+  const cancelInvite = async (invitationId: string) => {
     setBusy(true);
     setActionError(null);
-    const inviteId = selected.invite.id;
     try {
-      await cancelInvitation(inviteId);
+      await cancelInvitation(invitationId);
       hrDataMutators.setInvitations((prev) =>
-        prev.filter((p) => p.id !== inviteId),
+        prev.filter((p) => p.id !== invitationId),
       );
+      setCancelTarget(null);
     } catch (e) {
       setActionError(reportHrError(e, "jobTalentPool.cancelInvite"));
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleCancelInvite = async () => {
+    if (!selected?.invite) return;
+    await cancelInvite(selected.invite.id);
   };
 
   // ─── Loading / not-found guards ───────────────────────────────────────────
@@ -361,6 +347,26 @@ export default function JobTalentPoolPage() {
 
   return (
     <>
+      <ConfirmDialog
+        open={!!cancelTarget}
+        title="Batalkan Undangan?"
+        description={
+          <>
+            Undangan untuk{" "}
+            <span className="font-bold text-on-background">
+              {cancelTarget?.talent.name}
+            </span>{" "}
+            pada lowongan {job.title} akan ditarik kembali. Anda bisa mengundangnya lagi
+            kapan saja.
+          </>
+        }
+        confirmLabel="Batalkan Undangan"
+        cancelLabel="Kembali"
+        loading={busy}
+        onConfirm={() => cancelTarget?.invite && cancelInvite(cancelTarget.invite.id)}
+        onCancel={() => setCancelTarget(null)}
+      />
+
       {selected && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
@@ -632,25 +638,7 @@ export default function JobTalentPoolPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Select value={matchFilter} onValueChange={setMatchFilter}>
-                  <SelectTrigger className="h-12 w-full">
-                    <Icon
-                      name="bolt"
-                      size={16}
-                      className="text-on-surface-variant"
-                    />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {matchRangeOptions.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Select value={prodiFilter} onValueChange={setProdiFilter}>
                   <SelectTrigger className="h-12 w-full">
                     <Icon
@@ -668,25 +656,6 @@ export default function JobTalentPoolPage() {
                       </SelectItem>
                     ))}
                   </SelectContent>
-                </Select>
-
-                <Select value={skillFilter} onValueChange={setSkillFilter}>
-                  <SelectTrigger className="h-12 w-full">
-                    <Icon
-                      name="code"
-                      size={16}
-                      className="text-on-surface-variant"
-                    />
-                    <SelectValue />
-                  </SelectTrigger>
-                  {/* <SelectContent>
-                    <SelectItem value="all">Semua Skill</SelectItem>
-                    {allSkills.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent> */}
                 </Select>
 
                 <Select value={inviteFilter} onValueChange={setInviteFilter}>
@@ -810,6 +779,16 @@ export default function JobTalentPoolPage() {
                                   aria-label="Undang kandidat"
                                 >
                                   <Icon name="send" size={18} />
+                                </button>
+                              )}
+                              {r.invite && (
+                                <button
+                                  onClick={() => setCancelTarget(r)}
+                                  className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors"
+                                  title="Batalkan undangan"
+                                  aria-label="Batalkan undangan"
+                                >
+                                  <Icon name="person_remove" size={18} />
                                 </button>
                               )}
                             </div>

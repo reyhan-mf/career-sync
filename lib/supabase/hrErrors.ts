@@ -85,6 +85,18 @@ export function formatHrError(err: unknown): FriendlyError {
     };
   }
 
+  // 23503 = foreign_key_violation: the row is still referenced elsewhere. Without
+  // this, a delete blocked by a child row fell through to the useless HR[99].
+  if (e.code === "23503" || /foreign key constraint|violates foreign key/i.test(msg)) {
+    return {
+      code: "HR[08]",
+      message:
+        "Data ini masih dipakai oleh data lain (misalnya lamaran atau undangan), " +
+        "jadi belum bisa dihapus. Hapus/tutup data terkait terlebih dahulu.",
+      raw: err,
+    };
+  }
+
   if ((e.status ?? 0) >= 500 || /internal server|server error/i.test(msg)) {
     return {
       code: "HR[07]",

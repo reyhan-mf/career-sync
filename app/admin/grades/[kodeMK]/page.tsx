@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import Icon from "@/components/ui/Icon";
+import { useAdminData } from "../../AdminDataProvider";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CardSkeleton } from "@/components/ui/Skeletons";
@@ -54,6 +55,7 @@ interface CellTarget {
 
 export default function MKGradesMatrixPage() {
   const params = useParams<{ kodeMK: string }>();
+  const { setStudentClos: setSharedStudentClos } = useAdminData();
 
   const [mk, setMk] = useState<Matkul | null>(null);
   const [clos, setClos] = useState<CLO[]>([]);
@@ -169,12 +171,16 @@ export default function MKGradesMatrixPage() {
     try {
       await upsertStudentCLO(target.studentId, target.cloId, rounded);
       const newSC: StudentCLO = { student_id: target.studentId, clo_id: target.cloId, grade: rounded };
-      setStudentCLOs((prev) => {
+      const mergeSC = (prev: StudentCLO[]) => {
         const filtered = prev.filter(
           (sc) => !(sc.student_id === target.studentId && sc.clo_id === target.cloId),
         );
         return [...filtered, newSC];
-      });
+      };
+      setStudentCLOs(mergeSC);
+      // Keep the shared admin store (used by the coverage list & dashboard) in
+      // sync immediately, instead of waiting on a realtime event to arrive.
+      setSharedStudentClos(mergeSC);
       closeModal();
     } catch (e) {
       setError(reportAdminError(e, "upsertStudentCLO"));
@@ -188,11 +194,12 @@ export default function MKGradesMatrixPage() {
     setSaving(true);
     try {
       await deleteStudentCLO(deleteTarget.student_id, deleteTarget.clo_id);
-      setStudentCLOs((prev) =>
+      const removeSC = (prev: StudentCLO[]) =>
         prev.filter(
           (sc) => !(sc.student_id === deleteTarget.student_id && sc.clo_id === deleteTarget.clo_id),
-        ),
-      );
+        );
+      setStudentCLOs(removeSC);
+      setSharedStudentClos(removeSC);
       setDeleteTarget(null);
       setTarget(null);
     } catch (e) {

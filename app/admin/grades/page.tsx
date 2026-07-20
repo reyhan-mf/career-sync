@@ -21,7 +21,10 @@ type CoverageKey = "lengkap" | "sebagian" | "belum" | "no-clo";
 interface MKCoverage {
   mk: Matkul;
   cloCount: number;
+  /** Students whose CLOs are ALL graded — a partially graded student is not counted. */
   graded: number;
+  /** Students with some, but not all, CLOs graded. */
+  partial: number;
   progress: number;
   key: CoverageKey;
 }
@@ -39,16 +42,27 @@ export default function AdminGradesPage() {
       const mkCloIds = new Set(clos.filter((c) => c.matkul_id === mk.id).map((c) => c.id));
       const cloCount = mkCloIds.size;
       if (cloCount === 0) {
-        return { mk, cloCount: 0, graded: 0, progress: 0, key: "no-clo" as CoverageKey };
+        return { mk, cloCount: 0, graded: 0, partial: 0, progress: 0, key: "no-clo" as CoverageKey };
       }
-      const graded = new Set(
-        studentClos.filter((sc) => mkCloIds.has(sc.clo_id)).map((sc) => sc.student_id),
-      ).size;
+      // A student counts as covered only once EVERY CLO of the matkul is graded.
+      // Counting distinct student_ids instead would mark a student done off a
+      // single CLO and report coverage as complete while grades are missing.
+      const gradedCloCount = new Map<string, number>();
+      studentClos.forEach((sc) => {
+        if (!mkCloIds.has(sc.clo_id)) return;
+        gradedCloCount.set(sc.student_id, (gradedCloCount.get(sc.student_id) ?? 0) + 1);
+      });
+      let graded = 0;
+      let partial = 0;
+      gradedCloCount.forEach((n) => {
+        if (n >= cloCount) graded += 1;
+        else if (n > 0) partial += 1;
+      });
       const progress = studentsCount > 0 ? Math.round((graded / studentsCount) * 100) : 0;
       let key: CoverageKey = "belum";
-      if (progress === 100) key = "lengkap";
-      else if (progress > 0) key = "sebagian";
-      return { mk, cloCount, graded, progress, key };
+      if (studentsCount > 0 && graded === studentsCount) key = "lengkap";
+      else if (graded > 0 || partial > 0) key = "sebagian";
+      return { mk, cloCount, graded, partial, progress, key };
     });
   }, [matkuls, clos, studentClos, studentsCount]);
 
@@ -171,9 +185,9 @@ export default function AdminGradesPage() {
             <tbody>
               {loading ? (
                 <TableRowsSkeleton rows={6} cols={7} />
-              ) : filteredCoverages.map(({ mk, cloCount, graded, progress }) => {
+              ) : filteredCoverages.map(({ mk, cloCount, graded, partial, progress, key }) => {
                 const hasCLO = cloCount > 0;
-                const isComplete = progress === 100;
+                const isComplete = key === "lengkap";
                 return (
                   <tr
                     key={mk.id}
@@ -233,6 +247,11 @@ export default function AdminGradesPage() {
                               style={{ width: `${progress}%` }}
                             />
                           </div>
+                          {partial > 0 && (
+                            <span className="font-label text-[10px] text-on-surface-variant">
+                              {partial} mhs belum lengkap {cloCount} CLO
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <span className="font-label text-xs text-on-surface-variant italic">

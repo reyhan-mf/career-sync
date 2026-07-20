@@ -1,4 +1,7 @@
+import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "./client";
+import { edgeFunctionError } from "./functionError";
+import { fetchAllPages } from "./paginate";
 import { encodeClo } from "@/lib/encoding";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -59,21 +62,7 @@ export async function createStudent(input: {
   const { data, error } = await supabase.functions.invoke("provision-student", {
     body: input,
   });
-  if (error) {
-    // supabase-js wraps non-2xx as a generic error; the real reason is in
-    // error.context (a Response). Read it so the UI shows a useful message.
-    let fnMsg: string | undefined = (data as { error?: string } | null)?.error;
-    const ctx = (error as { context?: Response }).context;
-    if (!fnMsg && ctx && typeof ctx.json === "function") {
-      try {
-        const body = await ctx.clone().json();
-        fnMsg = body?.error ?? body?.message;
-      } catch {
-        try { fnMsg = await ctx.clone().text(); } catch { /* ignore */ }
-      }
-    }
-    throw new Error(fnMsg ?? error.message);
-  }
+  if (error) throw await edgeFunctionError(error, data);
   if (data && typeof data === "object" && "error" in data && data.error) {
     throw new Error(String(data.error));
   }
@@ -172,12 +161,14 @@ export async function getCLOsByMatkul(matkulId: string) {
 }
 
 export async function getAllCLOs() {
-  const { data, error } = await supabase
-    .from("clos")
-    .select("id, matkul_id, clo_code, clo_text")
-    .order("clo_code");
-  if (error) throw error;
-  return data as CLO[];
+  return fetchAllPages<CLO>((from, to) =>
+    supabase
+      .from("clos")
+      .select("id, matkul_id, clo_code, clo_text")
+      .order("clo_code")
+      .order("id")
+      .range(from, to),
+  );
 }
 
 export async function createCLO(clo: Omit<CLO, "id">) {
@@ -231,12 +222,15 @@ export async function getStudentCLOsByMatkul(matkulId: string) {
   if (!clos?.length) return [] as StudentCLOWithDetails[];
 
   const cloIds = clos.map((c) => c.id);
-  const { data, error } = await supabase
-    .from("student_clos")
-    .select(`student_id, clo_id, grade, students ( nim, name, angkatan ), clos ( clo_code, clo_text, matkul_id )`)
-    .in("clo_id", cloIds);
-  if (error) throw error;
-  return (data ?? []) as unknown as StudentCLOWithDetails[];
+  return fetchAllPages<StudentCLOWithDetails>((from, to) =>
+    supabase
+      .from("student_clos")
+      .select(`student_id, clo_id, grade, students ( nim, name, angkatan ), clos ( clo_code, clo_text, matkul_id )`)
+      .in("clo_id", cloIds)
+      .order("student_id")
+      .order("clo_id")
+      .range(from, to) as unknown as PromiseLike<{ data: StudentCLOWithDetails[] | null; error: PostgrestError | null }>,
+  );
 }
 
 export async function upsertStudentCLO(studentId: string, cloId: string, grade: number) {

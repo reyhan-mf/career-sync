@@ -9,6 +9,9 @@ interface ConfirmDialogProps {
   description?: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** Optional safer alternative to the destructive action (e.g. "Tutup saja"). */
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   variant?: "danger" | "primary";
   loading?: boolean;
   onConfirm: () => void;
@@ -21,6 +24,8 @@ export default function ConfirmDialog({
   description,
   confirmLabel = "Hapus",
   cancelLabel = "Batal",
+  secondaryLabel,
+  onSecondary,
   variant = "danger",
   loading = false,
   onConfirm,
@@ -61,6 +66,16 @@ export default function ConfirmDialog({
             )}
           </div>
         </div>
+        {secondaryLabel && onSecondary && (
+          <button
+            type="button"
+            onClick={onSecondary}
+            disabled={loading}
+            className="w-full mb-3 py-2.5 rounded-xl bg-primary-fixed font-label text-sm font-bold text-primary hover:bg-primary-fixed/70 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {secondaryLabel}
+          </button>
+        )}
         <div className="flex gap-3">
           <button
             type="button"

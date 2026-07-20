@@ -10,6 +10,7 @@ import {
   type StudentCLO,
 } from "./admin-queries";
 import { reportAdminError } from "./adminErrors";
+import { fetchAllPages } from "./paginate";
 import type { AdminProdiInfo } from "./useAdminProdi";
 import { clearRoleCache, resolveUserRole } from "./currentRole";
 
@@ -217,19 +218,28 @@ function subscribeRealtime(prodiId: string) {
 async function fetchStudentClosForMatkul(matkulIds: string[]): Promise<StudentCLO[]> {
   if (matkulIds.length === 0) return [];
   // Get CLO ids for our matkul, then student_clos rows for those CLOs.
-  const { data: closRows, error: e1 } = await supabase
-    .from("clos")
-    .select("id")
-    .in("matkul_id", matkulIds);
-  if (e1) throw e1;
-  const cloIds = (closRows ?? []).map((c) => c.id);
+  const cloRows = await fetchAllPages<{ id: string }>((from, to) =>
+    supabase
+      .from("clos")
+      .select("id")
+      .in("matkul_id", matkulIds)
+      .order("id")
+      .range(from, to),
+  );
+  const cloIds = cloRows.map((c) => c.id);
   if (cloIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from("student_clos")
-    .select("student_id, clo_id, grade")
-    .in("clo_id", cloIds);
-  if (error) throw error;
-  return (data ?? []) as StudentCLO[];
+  // One row per (student, CLO): a prodi with 10 students × 157 CLOs is already
+  // 1570 rows, well past PostgREST's 1000-row cap. Must be paged, or the tail
+  // is dropped silently and coverage under-reports.
+  return fetchAllPages<StudentCLO>((from, to) =>
+    supabase
+      .from("student_clos")
+      .select("student_id, clo_id, grade")
+      .in("clo_id", cloIds)
+      .order("student_id")
+      .order("clo_id")
+      .range(from, to),
+  );
 }
 
 /**
@@ -297,6 +307,9 @@ export const adminDataMutators = {
   },
   setClos(updater: (prev: CLO[]) => CLO[]) {
     setState({ clos: updater(state.clos) });
+  },
+  setStudentClos(updater: (prev: StudentCLO[]) => StudentCLO[]) {
+    setState({ studentClos: updater(state.studentClos) });
   },
 };
 

@@ -83,7 +83,7 @@ function ManageJobsContent() {
   const searchParams = useSearchParams();
   const openNewFromUrl = searchParams.get("new") === "1";
 
-  const { hr, jobs, applications, loading: storeLoading, error: storeError } = useHRData();
+  const { hr, jobs, applications, invitations, loading: storeLoading, error: storeError } = useHRData();
 
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -214,6 +214,36 @@ function ManageJobsContent() {
     }
   };
 
+  // What a delete would take down with it. Deleting cascades to invitations and
+  // applications, so say so out loud before the HR clicks through.
+  const deleteImpact = useMemo(() => {
+    if (!deleteTarget) return { applicants: 0, invites: 0 };
+    return {
+      applicants: applications.filter((a) => a.job_id === deleteTarget.id).length,
+      invites: invitations.filter((i) => i.job_id === deleteTarget.id).length,
+    };
+  }, [deleteTarget, applications, invitations]);
+
+  // The non-destructive way out of the delete dialog: close the job so it stops
+  // accepting applicants but keeps its applications and invitations.
+  const handleCloseInstead = async () => {
+    if (!deleteTarget) return;
+    setSaving(true);
+    setActionError(null);
+    const id = deleteTarget.id;
+    try {
+      await updateJob(id, { status: "closed" });
+      hrDataMutators.setJobs((prev) =>
+        prev.map((j) => (j.id === id ? { ...j, status: "closed" } : j)),
+      );
+      setDeleteTarget(null);
+    } catch (e) {
+      setActionError(reportHrError(e, "jobs.closeInsteadOfDelete"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setSaving(true);
@@ -222,6 +252,8 @@ function ManageJobsContent() {
     try {
       await deleteJob(id);
       hrDataMutators.setJobs((prev) => prev.filter((j) => j.id !== id));
+      hrDataMutators.setApplications((prev) => prev.filter((a) => a.job_id !== id));
+      hrDataMutators.setInvitations((prev) => prev.filter((i) => i.job_id !== id));
       setDeleteTarget(null);
     } catch (e) {
       setActionError(reportHrError(e, "jobs.delete"));
@@ -396,11 +428,34 @@ function ManageJobsContent() {
       <ConfirmDialog
         open={!!deleteTarget}
         title="Hapus Lowongan?"
+        loading={saving}
         description={
           <>
             Lowongan <span className="font-bold text-on-background">{deleteTarget?.title}</span> akan dihapus permanen.
+            {(deleteImpact.applicants > 0 || deleteImpact.invites > 0) && (
+              <>
+                {" "}Ikut terhapus:{" "}
+                {deleteImpact.applicants > 0 && (
+                  <span className="font-bold text-error">
+                    {deleteImpact.applicants} lamaran mahasiswa
+                  </span>
+                )}
+                {deleteImpact.applicants > 0 && deleteImpact.invites > 0 && " dan "}
+                {deleteImpact.invites > 0 && (
+                  <span className="font-bold text-error">
+                    {deleteImpact.invites} undangan talent
+                  </span>
+                )}
+                . Tindakan ini tidak bisa dibatalkan — kalau hanya ingin berhenti menerima
+                pelamar, tutup lowongannya saja.
+              </>
+            )}
           </>
         }
+        secondaryLabel={
+          deleteTarget && deleteTarget.status !== "closed" ? "Tutup Lowongan Saja" : undefined
+        }
+        onSecondary={handleCloseInstead}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />

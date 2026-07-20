@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { edgeFunctionError } from "./functionError";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -81,10 +82,7 @@ export async function createAdminUser(adminUser: {
   const { data, error } = await supabase.functions.invoke("provision-admin", {
     body: adminUser,
   });
-  if (error) {
-    const fnMsg = (data as { error?: string } | null)?.error;
-    throw new Error(fnMsg ?? error.message);
-  }
+  if (error) throw await edgeFunctionError(error, data);
   if (data && typeof data === "object" && "error" in data && data.error) {
     throw new Error(String(data.error));
   }
@@ -100,10 +98,7 @@ export async function resetAdminPassword(adminId: string, password: string): Pro
   const { data, error } = await supabase.functions.invoke("reset-admin-password", {
     body: { admin_id: adminId, password },
   });
-  if (error) {
-    const fnMsg = (data as { error?: string } | null)?.error;
-    throw new Error(fnMsg ?? error.message);
-  }
+  if (error) throw await edgeFunctionError(error, data);
   if (data && typeof data === "object" && "error" in data && data.error) {
     throw new Error(String(data.error));
   }
