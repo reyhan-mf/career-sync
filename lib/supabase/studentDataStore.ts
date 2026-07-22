@@ -34,6 +34,9 @@ export interface StudentDataState {
   // refetches every score so the list, the badges and the per-requirement
   // breakdown never disagree.
   gradeBasis: AssessmentMode;
+  // True while the scores are being refetched under a newly chosen basis, so
+  // screens can show a skeleton instead of numbers from the previous basis.
+  matchScoresLoading: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -46,6 +49,7 @@ const initialState: StudentDataState = {
   invitations: [],
   matchScores: {},
   gradeBasis: "clo",
+  matchScoresLoading: false,
   loading: false,
   error: null,
 };
@@ -295,15 +299,19 @@ export const studentDataMutators = {
   setGradeBasis(mode: AssessmentMode) {
     if (state.gradeBasis === mode) return;
     const studentId = state.profile?.student.id;
-    setState({ gradeBasis: mode, matchScores: {} });
+    setState({ gradeBasis: mode, matchScores: {}, matchScoresLoading: !!studentId });
     if (!studentId) return;
     getJobMatchScores(studentId, mode)
       .then((matchScores) => {
-        // Ignore a response that lost the race with a newer basis switch.
+        // Ignore a response that lost the race with a newer basis switch —
+        // that switch owns the loading flag now.
         if (state.gradeBasis !== mode) return;
-        setState({ matchScores });
+        setState({ matchScores, matchScoresLoading: false });
       })
-      .catch(() => {});
+      .catch(() => {
+        if (state.gradeBasis !== mode) return;
+        setState({ matchScoresLoading: false });
+      });
   },
 };
 

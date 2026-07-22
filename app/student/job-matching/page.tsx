@@ -5,6 +5,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useStudentData } from "../StudentDataProvider";
+import { studentDataMutators } from "@/lib/supabase/studentDataStore";
+import GradeBasisToggle, {
+  STUDENT_BASIS_OPTIONS,
+} from "@/components/ui/GradeBasisToggle";
 
 function JobCardSkeleton() {
   return (
@@ -130,7 +134,23 @@ function DropdownFilter({
 const PAGE_SIZE = 12;
 
 export default function JobMatchingPage() {
-  const { jobs, matchScores, loading, error, profile, gradeBasis } = useStudentData();
+  const {
+    jobs,
+    matchScores,
+    loading,
+    error,
+    profile,
+    gradeBasis,
+    matchScoresLoading,
+    transcript,
+  } = useStudentData();
+
+  // Offering a CLO view to a student whose prodi records no CLO grades would
+  // just show an all-zero ranking, so the toggle is hidden for them.
+  const hasCloGrades = useMemo(
+    () => transcript.some((c) => c.clos.some((clo) => clo.grade != null)),
+    [transcript],
+  );
 
   const [search, setSearch] = useState("");
   const [locationSearch, setLocationSearch] = useState("");
@@ -243,15 +263,19 @@ export default function JobMatchingPage() {
         <p className="font-body text-on-surface-variant">
           Lowongan aktif yang dapat Anda lamar.
         </p>
-        {/* Which grade the % badges below are weighted by — switched from the
-            "Analisis Kompetensi" tab of any job. */}
-        <span className="inline-flex items-center gap-1.5 font-label text-xs text-on-surface-variant">
-          <Icon name={gradeBasis === "course" ? "menu_book" : "checklist"} size={14} />
-          Skor dihitung dari{" "}
-          <span className="font-semibold text-on-surface">
-            {gradeBasis === "course" ? "nilai mata kuliah" : "nilai per CLO"}
-          </span>
-        </span>
+        {/* Which grade the % badges below are weighted by. Shares state with
+            the "Analisis Kompetensi" tab, so both screens always agree. */}
+        {hasCloGrades && (
+          <div className="pt-1">
+            <GradeBasisToggle
+              label="Skor dihitung dari"
+              value={gradeBasis}
+              options={STUDENT_BASIS_OPTIONS}
+              onChange={(v) => studentDataMutators.setGradeBasis(v)}
+              disabled={matchScoresLoading}
+            />
+          </div>
+        )}
       </div>
 
       {error && (
@@ -298,10 +322,21 @@ export default function JobMatchingPage() {
       </div>
 
       <p className="font-label text-sm text-on-surface-variant">
-        Menampilkan {filteredJobs.length} dari {jobs.length} lowongan aktif
+        {matchScoresLoading
+          ? "Menghitung ulang skor kecocokan..."
+          : `Menampilkan ${filteredJobs.length} dari ${jobs.length} lowongan aktif`}
       </p>
 
-      {filteredJobs.length === 0 ? (
+      {/* Switching the basis re-scores every job server-side. Show skeletons
+          rather than the previous basis' numbers, which would briefly read as
+          if they belonged to the newly selected basis. */}
+      {matchScoresLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <JobCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : filteredJobs.length === 0 ? (
         <div className="text-center py-16">
           <Icon name={jobs.length === 0 ? "work_off" : "search_off"} className="text-outline mx-auto mb-4" size={48} />
           <p className="font-headline text-lg text-on-surface-variant">

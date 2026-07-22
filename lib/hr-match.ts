@@ -72,9 +72,7 @@ export function courseGradeMapsByStudent(
 }
 
 /**
- * Which basis a given student is scored on. HR never picks this — it follows
- * the student's own prodi, so one ranked list never mixes two grade bases and
- * students from a prodi without CLO-level grades still appear normally.
+ * The basis a student's prodi records grades on — the default for that student.
  */
 export function assessmentModeOf(
   prodiId: string | null | undefined,
@@ -85,8 +83,67 @@ export function assessmentModeOf(
 }
 
 /**
- * Build the `course` argument of `matchScoreFromRbc` for one student, or
- * undefined when that student is scored on the CLO basis.
+ * What HR asked the list to be scored on. "auto" keeps every student on their
+ * own prodi's basis; the other two apply one basis to the whole list.
+ */
+export type HrGradeBasis = "auto" | AssessmentMode;
+
+export interface ResolvedBasis {
+  /** The basis actually used for this student. */
+  mode: AssessmentMode;
+  /** Pass to matchScoreFromRbc; undefined when `mode` is 'clo'. */
+  course?: CourseBasis;
+  /** True when the request was overridden because the data isn't there. */
+  fellBack: boolean;
+}
+
+/**
+ * Resolve one student's scoring basis under an HR-selected override.
+ *
+ * The course basis is always available — `student_course_grade` derives a
+ * per-matkul grade from the CLO average when a prodi has no direct entries.
+ * The CLO basis is NOT: a prodi that only records final course grades has no
+ * `student_clos` rows at all, and forcing it would score those students 0 and
+ * drop them out of the ranking entirely. So a forced 'clo' falls back to the
+ * student's own prodi basis, and `fellBack` lets the UI say so.
+ */
+export function resolveTalentBasis(
+  studentId: string,
+  prodiId: string | null | undefined,
+  prodiModes: Record<string, { assessment_mode: AssessmentMode }>,
+  gradeMaps: Map<string, Map<string, number>>,
+  cloToMatkul: Record<string, string>,
+  requested: HrGradeBasis = "auto",
+  hasCloGrades = true,
+): ResolvedBasis {
+  const prodiMode = assessmentModeOf(prodiId, prodiModes);
+  let mode: AssessmentMode;
+  let fellBack = false;
+  if (requested === "auto") {
+    mode = prodiMode;
+  } else if (requested === "clo") {
+    mode = hasCloGrades ? "clo" : prodiMode;
+    fellBack = !hasCloGrades && mode !== "clo";
+  } else {
+    mode = "course";
+  }
+  return {
+    mode,
+    course:
+      mode === "course"
+        ? {
+            basis: "course",
+            gradeByMatkul: gradeMaps.get(studentId) ?? new Map(),
+            cloToMatkul,
+          }
+        : undefined,
+    fellBack,
+  };
+}
+
+/**
+ * Build the `course` argument of `matchScoreFromRbc` for one student on their
+ * prodi's own basis, or undefined when that basis is CLO.
  */
 export function courseBasisFor(
   studentId: string,
@@ -95,12 +152,8 @@ export function courseBasisFor(
   gradeMaps: Map<string, Map<string, number>>,
   cloToMatkul: Record<string, string>,
 ): CourseBasis | undefined {
-  if (assessmentModeOf(prodiId, prodiModes) !== "course") return undefined;
-  return {
-    basis: "course",
-    gradeByMatkul: gradeMaps.get(studentId) ?? new Map(),
-    cloToMatkul,
-  };
+  return resolveTalentBasis(studentId, prodiId, prodiModes, gradeMaps, cloToMatkul)
+    .course;
 }
 
 // requirement→best-CLO rows grouped by job id.

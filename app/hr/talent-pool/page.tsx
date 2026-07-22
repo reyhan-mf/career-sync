@@ -16,13 +16,17 @@ import {
   type JobStatus,
 } from "@/lib/hr-mock";
 import {
-  courseBasisFor,
   courseGradeMapsByStudent,
   gradesByCloId,
   matchScoreFromRbc,
   rbcByJobId,
+  resolveTalentBasis,
   type CourseBasis,
 } from "@/lib/hr-match";
+import { hrDataMutators } from "@/lib/supabase/hrDataStore";
+import GradeBasisToggle, {
+  HR_BASIS_OPTIONS,
+} from "@/components/ui/GradeBasisToggle";
 import type { TalentCLOGrade } from "@/lib/supabase/hr-queries";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -50,6 +54,7 @@ export default function TalentPoolPage() {
     reqBestClos,
     cloMatkul,
     prodiInfo,
+    gradeBasis,
     invitations,
     loading,
     error,
@@ -77,16 +82,30 @@ export default function TalentPoolPage() {
     return map;
   }, [talents, gradesByStudent]);
 
-  // Course basis per talent (undefined for talents graded per CLO), resolved
-  // once here rather than inside the per-job × per-talent loop below.
+  // Course basis per talent (undefined for talents scored on CLO), resolved
+  // once here rather than inside the per-job × per-talent loop below. Honours
+  // the HR-selected basis, which is shared with /hr/talent-pool/[jobId] so the
+  // "Top N%" on a card matches the ranking inside it.
   const courseBasisByStudent = useMemo(() => {
     const gradeMaps = courseGradeMapsByStudent(talentCourseGrades);
     const map = new Map<string, CourseBasis | undefined>();
     talents.forEach((t) => {
-      map.set(t.id, courseBasisFor(t.id, t.prodi_id, prodiInfo, gradeMaps, cloMatkul));
+      const hasCloGrades = (gradesByStudent.get(t.id) ?? []).some((g) => g.grade != null);
+      map.set(
+        t.id,
+        resolveTalentBasis(
+          t.id,
+          t.prodi_id,
+          prodiInfo,
+          gradeMaps,
+          cloMatkul,
+          gradeBasis,
+          hasCloGrades,
+        ).course,
+      );
     });
     return map;
-  }, [talents, talentCourseGrades, prodiInfo, cloMatkul]);
+  }, [talents, talentCourseGrades, prodiInfo, cloMatkul, gradeBasis, gradesByStudent]);
 
   const rbcByJob = useMemo(() => rbcByJobId(reqBestClos), [reqBestClos]);
 
@@ -261,7 +280,17 @@ export default function TalentPoolPage() {
             ))}
           </SelectContent>
         </Select>
+
       </div>
+
+      {/* Shared with the per-job pool, so the "Top N%" on each card and the
+          ranking inside it are always weighted the same way. */}
+      <GradeBasisToggle
+        label="Skor dihitung dari"
+        value={gradeBasis}
+        options={HR_BASIS_OPTIONS}
+        onChange={(v) => hrDataMutators.setGradeBasis(v)}
+      />
 
       {filtered.length === 0 ? (
         <div className="bg-surface-container-lowest rounded-2xl p-10 text-center shadow-ambient ghost-border">

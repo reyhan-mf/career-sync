@@ -23,6 +23,7 @@ import {
   type TalentStudent,
 } from "./hr-queries";
 import { reportHrError } from "./hrErrors";
+import type { HrGradeBasis } from "@/lib/hr-match";
 import { clearRoleCache, resolveUserRole } from "./currentRole";
 
 export interface HRDataState {
@@ -42,6 +43,11 @@ export interface HRDataState {
   cloMatkul: Record<string, string>;
   invitations: TalentInvitation[];
   prodiInfo: Record<string, ProdiInfo>;
+  // Grade basis HR wants the talent pool ranked on. "auto" (default) keeps each
+  // student on their own prodi's basis; the other two apply one basis to the
+  // whole list. Purely a client-side view setting — scores are computed in the
+  // browser from data already loaded, so switching costs no round trip.
+  gradeBasis: HrGradeBasis;
   loading: boolean;
   error: string | null;
 }
@@ -58,6 +64,7 @@ const initialState: HRDataState = {
   cloMatkul: {},
   invitations: [],
   prodiInfo: {},
+  gradeBasis: "auto",
   loading: false,
   error: null,
 };
@@ -319,6 +326,12 @@ export const hrDataMutators = {
   },
   setInvitations(updater: (prev: TalentInvitation[]) => TalentInvitation[]) {
     setState({ invitations: updater(state.invitations) });
+  },
+  // Shared by /hr/talent-pool and /hr/talent-pool/[jobId] so the job cards and
+  // the ranked candidate list never disagree about how they were scored.
+  setGradeBasis(basis: HrGradeBasis) {
+    if (state.gradeBasis === basis) return;
+    setState({ gradeBasis: basis });
   },
 };
 

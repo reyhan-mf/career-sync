@@ -14,6 +14,10 @@ import {
 } from "@/lib/supabase/student-queries";
 import { useStudentData } from "@/app/student/StudentDataProvider";
 import { studentDataMutators } from "@/lib/supabase/studentDataStore";
+import GradeBasisToggle, {
+  STUDENT_BASIS_OPTIONS,
+} from "@/components/ui/GradeBasisToggle";
+import type { AssessmentMode } from "@/lib/supabase/superadmin-queries";
 import { reportStudentError } from "@/lib/supabase/studentErrors";
 
 const APPLY_STATUS_LABEL: Record<string, string> = {
@@ -164,7 +168,16 @@ export default function JobDetailPage() {
     job: JobDetail | null;
     error: string | null;
   }>({ status: "loading", job: null, error: null });
-  const [breakdown, setBreakdown] = useState<ReqMatchBreakdown[]>([]);
+  // The rows are stored together with the basis they were fetched for, so
+  // "still loading" is derived rather than tracked in a second state — the
+  // effect below must not call setState synchronously in its body.
+  const [breakdownState, setBreakdownState] = useState<{
+    rows: ReqMatchBreakdown[];
+    basis: AssessmentMode | null;
+  }>({ rows: [], basis: null });
+  const breakdown = breakdownState.rows;
+  // Right after the basis is switched the rows still describe the previous one.
+  const breakdownLoading = !!studentId && breakdownState.basis !== gradeBasis;
   // requirement_ids whose detail table is expanded.
   const [openReqs, setOpenReqs] = useState<Set<string>>(new Set());
 
@@ -201,8 +214,8 @@ export default function JobDetailPage() {
     if (!jobId || !studentId) return;
     let alive = true;
     getJobMatchBreakdown(studentId, jobId, gradeBasis)
-      .then((rows) => alive && setBreakdown(rows))
-      .catch(() => alive && setBreakdown([]));
+      .then((rows) => alive && setBreakdownState({ rows, basis: gradeBasis }))
+      .catch(() => alive && setBreakdownState({ rows: [], basis: gradeBasis }));
     return () => {
       alive = false;
     };
@@ -356,7 +369,7 @@ export default function JobDetailPage() {
             </div>
 
             <div className="flex flex-col items-center gap-2 shrink-0">
-              <ScoreRing score={overallScore} />
+              <ScoreRing score={breakdownLoading ? null : overallScore} />
               {existingApplication ? (
                 <div className="flex flex-col items-center gap-1">
                   <span className="inline-flex items-center gap-2 rounded-xl px-6 py-3 font-label font-bold bg-green-50 text-green-700 whitespace-nowrap">
@@ -516,29 +529,13 @@ export default function JobDetailPage() {
                     Pilih nilai mana yang dipakai membobot kemiripan.
                   </p>
                 </div>
-                <div
-                  role="group"
-                  aria-label="Basis nilai"
-                  className="flex rounded-xl bg-surface-container-low p-1 shrink-0"
-                >
-                  {([
-                    { value: "clo" as const, label: "Per CLO" },
-                    { value: "course" as const, label: "Per Mata Kuliah" },
-                  ]).map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => studentDataMutators.setGradeBasis(opt.value)}
-                      aria-pressed={gradeBasis === opt.value}
-                      className={`px-3.5 py-2 rounded-lg font-label text-xs font-semibold transition-colors ${
-                        gradeBasis === opt.value
-                          ? "bg-primary text-on-primary shadow-sm"
-                          : "text-on-surface-variant hover:text-on-surface"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                <div className="shrink-0">
+                  <GradeBasisToggle
+                    value={gradeBasis}
+                    options={STUDENT_BASIS_OPTIONS}
+                    onChange={(v) => studentDataMutators.setGradeBasis(v)}
+                    disabled={breakdownLoading}
+                  />
                 </div>
               </div>
             )}
@@ -558,7 +555,15 @@ export default function JobDetailPage() {
               </div>
             </div>
 
-            {job.requirements.length === 0 ? (
+            {breakdownLoading ? (
+              // Basis just changed: the old per-requirement numbers describe the
+              // previous basis, so hide them until the new ones land.
+              <div className="space-y-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Sk key={i} className="h-14 w-full rounded-2xl" />
+                ))}
+              </div>
+            ) : job.requirements.length === 0 ? (
               <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-ambient ghost-border">
                 <p className="font-body text-sm text-on-surface-variant">
                   Perusahaan belum menambahkan daftar kualifikasi untuk lowongan ini.

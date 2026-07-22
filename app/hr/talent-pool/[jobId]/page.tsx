@@ -13,13 +13,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
-  assessmentModeOf,
-  courseBasisFor,
   courseGradeMapsByStudent,
   gradesByCloId,
   matchScoreFromRbc,
   rbcByJobId,
+  resolveTalentBasis,
 } from "@/lib/hr-match";
+import GradeBasisToggle, {
+  HR_BASIS_OPTIONS,
+} from "@/components/ui/GradeBasisToggle";
 import type { AssessmentMode } from "@/lib/supabase/superadmin-queries";
 import {
   inviteStatusColor,
@@ -55,8 +57,10 @@ interface TalentRow {
   invite: TalentInvitation | null;
   uiStatus: InviteStatus;
   prodiName: string;
-  /** Grade basis this talent's score was computed on — set by their prodi. */
+  /** Grade basis this talent's score was actually computed on. */
   mode: AssessmentMode;
+  /** True when the HR-selected basis was unavailable for this talent. */
+  fellBack: boolean;
 }
 
 export default function JobTalentPoolPage() {
@@ -73,6 +77,7 @@ export default function JobTalentPoolPage() {
     cloMatkul,
     invitations,
     prodiInfo,
+    gradeBasis,
     loading,
     error,
   } = useHRData();
@@ -168,10 +173,20 @@ export default function JobTalentPoolPage() {
   const rows = useMemo<TalentRow[]>(() => {
     return talents.map((t) => {
       const grades = gradesByStudent.get(t.id) ?? [];
-      // Basis follows the talent's own prodi, so a prodi that records only
-      // final course grades still produces a real score instead of zeros —
-      // and the single ranked list stays meaningful.
-      const course = courseBasisFor(t.id, t.prodi_id, prodiInfo, courseGradeMaps, cloMatkul);
+      // Under "auto" the basis follows the talent's own prodi; otherwise HR's
+      // choice applies — except a forced CLO basis falls back for talents whose
+      // prodi has no CLO-level grades, so they keep a real score instead of
+      // dropping to 0 and vanishing from the ranking.
+      const hasCloGrades = grades.some((g) => g.grade != null);
+      const { mode, course, fellBack } = resolveTalentBasis(
+        t.id,
+        t.prodi_id,
+        prodiInfo,
+        courseGradeMaps,
+        cloMatkul,
+        gradeBasis,
+        hasCloGrades,
+      );
       const score = matchScoreFromRbc(gradesByCloId(grades), rbcForJob, course) ?? 0;
       const invite = inviteByStudent.get(t.id) ?? null;
       const uiStatus: InviteStatus = invite ? invite.status : "not_contacted";
@@ -182,7 +197,8 @@ export default function JobTalentPoolPage() {
         invite,
         uiStatus,
         prodiName: t.prodi_id ? (prodiInfo[t.prodi_id]?.name ?? "—") : "—",
-        mode: assessmentModeOf(t.prodi_id, prodiInfo),
+        mode,
+        fellBack,
       };
     });
   }, [
@@ -193,6 +209,7 @@ export default function JobTalentPoolPage() {
     prodiInfo,
     courseGradeMaps,
     cloMatkul,
+    gradeBasis,
   ]);
 
   const prodiOptions = useMemo(() => {
@@ -222,6 +239,8 @@ export default function JobTalentPoolPage() {
   }, [rows, search, prodiFilter, inviteFilter]);
 
   const total = rows.length;
+  // Talents whose prodi could not supply the basis HR asked for.
+  const fallbackCount = rows.filter((r) => r.fellBack).length;
   const strongCount = rows.filter((r) => r.matchScore >= 85).length;
   const invitedCount = rows.filter((r) => r.uiStatus === "invited").length;
   const respondedCount = rows.filter((r) => r.uiStatus === "responded").length;
@@ -448,7 +467,7 @@ export default function JobTalentPoolPage() {
                     >
                       {inviteStatusLabel[selected.uiStatus]}
                     </span>
-                    <BasisBadge mode={selected.mode} />
+                    <BasisBadge mode={selected.mode} fellBack={selected.fellBack} />
                   </div>
                 </div>
               </div>
@@ -759,7 +778,45 @@ export default function JobTalentPoolPage() {
                     <SelectItem value="declined">Menolak</SelectItem>
                   </SelectContent>
                 </Select>
+
               </div>
+
+              {/* Basis nilai: re-ranks the whole list. Not a row filter — every
+                  talent stays visible, only the weighting changes. Same control
+                  the student uses on /student/job-matching. */}
+              <GradeBasisToggle
+                label="Skor dihitung dari"
+                value={gradeBasis}
+                options={HR_BASIS_OPTIONS}
+                onChange={(v) => hrDataMutators.setGradeBasis(v)}
+              />
+
+              {gradeBasis !== "auto" && (
+                <div className="flex items-start gap-2 rounded-xl bg-surface-container-low px-3 py-2">
+                  <Icon
+                    name="info"
+                    size={15}
+                    className="text-on-surface-variant mt-0.5 shrink-0"
+                  />
+                  <p className="font-body text-xs text-on-surface-variant leading-relaxed">
+                    Peringkat dibobot{" "}
+                    <span className="font-semibold text-on-surface">
+                      {gradeBasis === "course" ? "nilai mata kuliah" : "nilai per CLO"}
+                    </span>{" "}
+                    untuk semua kandidat. Kemiripan tetap dihitung dari teks CLO.
+                    {fallbackCount > 0 && (
+                      <>
+                        {" "}
+                        <span className="font-semibold text-on-surface">
+                          {fallbackCount} kandidat
+                        </span>{" "}
+                        tetap memakai basis prodinya karena prodinya tidak
+                        mencatat nilai per CLO — ditandai pada kolom skor.
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
 
               {activeFilterCount > 0 && (
                 <div className="flex items-center justify-between pt-1">
@@ -838,7 +895,7 @@ export default function JobTalentPoolPage() {
                               >
                                 {r.matchScore}%
                               </span>
-                              <BasisBadge mode={r.mode} />
+                              <BasisBadge mode={r.mode} fellBack={r.fellBack} />
                             </div>
                           </td>
                           <td className="px-4 py-3 align-top">
@@ -904,20 +961,27 @@ export default function JobTalentPoolPage() {
   );
 }
 
-// Which grade basis a talent's score was computed on. Purely informational —
-// HR cannot change it; it is a property of the student's prodi.
-function BasisBadge({ mode }: { mode: AssessmentMode }) {
+// Which grade basis a talent's score was actually computed on. `fellBack` marks
+// a talent whose prodi could not supply the basis HR selected, so the reader
+// knows this one row is not on the same footing as the rest.
+function BasisBadge({ mode, fellBack }: { mode: AssessmentMode; fellBack?: boolean }) {
   const isCourse = mode === "course";
   return (
     <span
       title={
-        isCourse
-          ? "Skor dibobot nilai akhir mata kuliah (prodi ini tidak mencatat nilai per CLO)"
-          : "Skor dibobot nilai per CLO"
+        fellBack
+          ? "Prodi kandidat ini tidak mencatat nilai per CLO, jadi skornya tetap memakai nilai mata kuliah"
+          : isCourse
+            ? "Skor dibobot nilai akhir mata kuliah"
+            : "Skor dibobot nilai per CLO"
       }
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-label text-[10px] font-semibold text-on-surface-variant bg-surface-container whitespace-nowrap"
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-label text-[10px] font-semibold whitespace-nowrap ${
+        fellBack
+          ? "text-amber-800 bg-amber-50"
+          : "text-on-surface-variant bg-surface-container"
+      }`}
     >
-      <Icon name={isCourse ? "menu_book" : "checklist"} size={11} />
+      <Icon name={fellBack ? "info" : isCourse ? "menu_book" : "checklist"} size={11} />
       {isCourse ? "Mata Kuliah" : "CLO"}
     </span>
   );
