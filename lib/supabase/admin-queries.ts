@@ -3,6 +3,7 @@ import { supabase } from "./client";
 import { edgeFunctionError } from "./functionError";
 import { fetchAllPages } from "./paginate";
 import { encodeClo } from "@/lib/encoding";
+import type { AssessmentMode } from "./superadmin-queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,26 @@ export interface StudentCLO {
   student_id: string;
   clo_id: string;
   grade: number | null;
+}
+
+/**
+ * Final grade for a whole mata kuliah. Only prodi with
+ * `assessment_mode = 'course'` fill this in directly; for 'clo' prodi the same
+ * number is derived from the CLO average by the `student_course_grade` view.
+ */
+export interface StudentMatkul {
+  student_id: string;
+  matkul_id: string;
+  grade: number | null;
+}
+
+/** One resolved course grade, whichever source it came from. */
+export interface StudentCourseGrade {
+  student_id: string;
+  matkul_id: string;
+  grade: number;
+  /** 'direct' = typed into student_matkul, 'clo_avg' = averaged from CLOs. */
+  source: "direct" | "clo_avg";
 }
 
 // ─── Students ─────────────────────────────────────────────────────────────────
@@ -246,5 +267,63 @@ export async function deleteStudentCLO(studentId: string, cloId: string) {
     .delete()
     .eq("student_id", studentId)
     .eq("clo_id", cloId);
+  if (error) throw error;
+}
+
+// ─── Student Matkul (nilai akhir per mata kuliah) ─────────────────────────────
+//
+// Mirrors the student_clos helpers above one-for-one — same shape, same upsert
+// conflict target — so the grade-entry page can swap sources by mode without
+// branching on anything but the table.
+
+export async function getStudentMatkulByMatkul(matkulId: string) {
+  const { data, error } = await supabase
+    .from("student_matkul")
+    .select("student_id, matkul_id, grade")
+    .eq("matkul_id", matkulId)
+    .order("student_id");
+  if (error) throw error;
+  return data as StudentMatkul[];
+}
+
+export async function upsertStudentMatkul(
+  studentId: string,
+  matkulId: string,
+  grade: number,
+) {
+  const { error } = await supabase
+    .from("student_matkul")
+    .upsert(
+      { student_id: studentId, matkul_id: matkulId, grade },
+      { onConflict: "student_id,matkul_id" },
+    );
+  if (error) throw error;
+}
+
+export async function deleteStudentMatkul(studentId: string, matkulId: string) {
+  const { error } = await supabase
+    .from("student_matkul")
+    .delete()
+    .eq("student_id", studentId)
+    .eq("matkul_id", matkulId);
+  if (error) throw error;
+}
+
+// ─── Prodi settings ───────────────────────────────────────────────────────────
+
+/**
+ * Switch this prodi between grading per CLO and per mata kuliah. Allowed by the
+ * `prodi_admin_update_own` RLS policy (see
+ * supabase/migrations/20260722_course_grade_mode.sql) — an admin may only touch
+ * their own prodi.
+ */
+export async function updateProdiAssessmentMode(
+  prodiId: string,
+  mode: AssessmentMode,
+) {
+  const { error } = await supabase
+    .from("prodi")
+    .update({ assessment_mode: mode })
+    .eq("id", prodiId);
   if (error) throw error;
 }

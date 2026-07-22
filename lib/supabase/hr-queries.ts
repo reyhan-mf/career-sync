@@ -2,6 +2,7 @@ import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase } from "./client";
 import { fetchAllPages } from "./paginate";
 import { encodeRequirements } from "@/lib/encoding";
+import type { AssessmentMode } from "./superadmin-queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -450,10 +451,77 @@ export async function getReqBestClos(jobIds: string[]): Promise<ReqBestCloRow[]>
   }));
 }
 
-export async function getProdiNames(): Promise<Record<string, string>> {
+export interface ProdiInfo {
+  name: string;
+  /**
+   * Where this student's prodi records grades. HR does not choose this — the
+   * score for each talent is computed on their own prodi's basis so that
+   * students from a prodi with no CLO-level grades still rank normally.
+   */
+  assessment_mode: AssessmentMode;
+}
+
+export async function getProdiInfo(): Promise<Record<string, ProdiInfo>> {
   const { data, error } = await supabase
     .from("prodi")
-    .select("id, name");
+    .select("id, name, assessment_mode");
   if (error) throw error;
-  return Object.fromEntries((data ?? []).map((p) => [p.id, p.name as string]));
+  return Object.fromEntries(
+    (data ?? []).map((p) => [
+      p.id as string,
+      {
+        name: p.name as string,
+        assessment_mode: (p.assessment_mode ?? "clo") as AssessmentMode,
+      },
+    ]),
+  );
+}
+
+// ─── Course-level grades for the talent pool ─────────────────────────────────
+
+export interface TalentCourseGrade {
+  student_id: string;
+  matkul_id: string;
+  grade: number;
+  source: "direct" | "clo_avg";
+}
+
+/**
+ * Final per-matkul grades for the given talents, read from the
+ * `student_course_grade` view — which already resolves directly-entered grades
+ * and CLO averages into one row per (student, matkul).
+ */
+export async function getTalentCourseGrades(
+  studentIds: string[],
+): Promise<TalentCourseGrade[]> {
+  if (studentIds.length === 0) return [];
+  // One row per (student, matkul) across every talent — same 1000-row cap
+  // reasoning as getTalentGrades above.
+  const rows = await fetchAllPages<{
+    student_id: string;
+    matkul_id: string;
+    grade: number | string;
+    source: "direct" | "clo_avg";
+  }>((from, to) =>
+    supabase
+      .from("student_course_grade")
+      .select("student_id, matkul_id, grade, source")
+      .in("student_id", studentIds)
+      .order("student_id")
+      .order("matkul_id")
+      .range(from, to),
+  );
+  // `grade` is numeric — PostgREST may hand it back as a string.
+  return rows.map((r) => ({ ...r, grade: Number(r.grade) }));
+}
+
+/**
+ * clo_id → matkul_id for every CLO (≈158 rows). Lets the client resolve a
+ * req_best_clo row to the matkul whose final grade should weight it.
+ */
+export async function getCloMatkulMap(): Promise<Record<string, string>> {
+  const rows = await fetchAllPages<{ id: string; matkul_id: string }>((from, to) =>
+    supabase.from("clos").select("id, matkul_id").order("id").range(from, to),
+  );
+  return Object.fromEntries(rows.map((r) => [r.id, r.matkul_id]));
 }

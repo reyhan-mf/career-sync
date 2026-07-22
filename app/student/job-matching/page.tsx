@@ -130,7 +130,7 @@ function DropdownFilter({
 const PAGE_SIZE = 12;
 
 export default function JobMatchingPage() {
-  const { jobs, matchScores, loading, error, profile } = useStudentData();
+  const { jobs, matchScores, loading, error, profile, gradeBasis } = useStudentData();
 
   const [search, setSearch] = useState("");
   const [locationSearch, setLocationSearch] = useState("");
@@ -243,6 +243,15 @@ export default function JobMatchingPage() {
         <p className="font-body text-on-surface-variant">
           Lowongan aktif yang dapat Anda lamar.
         </p>
+        {/* Which grade the % badges below are weighted by — switched from the
+            "Analisis Kompetensi" tab of any job. */}
+        <span className="inline-flex items-center gap-1.5 font-label text-xs text-on-surface-variant">
+          <Icon name={gradeBasis === "course" ? "menu_book" : "checklist"} size={14} />
+          Skor dihitung dari{" "}
+          <span className="font-semibold text-on-surface">
+            {gradeBasis === "course" ? "nilai mata kuliah" : "nilai per CLO"}
+          </span>
+        </span>
       </div>
 
       {error && (

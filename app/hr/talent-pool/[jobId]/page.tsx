@@ -13,10 +13,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableRowsSkeleton } from "@/components/ui/Skeletons";
 import {
+  assessmentModeOf,
+  courseBasisFor,
+  courseGradeMapsByStudent,
   gradesByCloId,
   matchScoreFromRbc,
   rbcByJobId,
 } from "@/lib/hr-match";
+import type { AssessmentMode } from "@/lib/supabase/superadmin-queries";
 import {
   inviteStatusColor,
   inviteStatusLabel,
@@ -51,6 +55,8 @@ interface TalentRow {
   invite: TalentInvitation | null;
   uiStatus: InviteStatus;
   prodiName: string;
+  /** Grade basis this talent's score was computed on — set by their prodi. */
+  mode: AssessmentMode;
 }
 
 export default function JobTalentPoolPage() {
@@ -62,9 +68,11 @@ export default function JobTalentPoolPage() {
     jobs,
     talents,
     talentGrades,
+    talentCourseGrades,
     reqBestClos,
+    cloMatkul,
     invitations,
-    prodiNames,
+    prodiInfo,
     loading,
     error,
   } = useHRData();
@@ -79,6 +87,8 @@ export default function JobTalentPoolPage() {
   const [inviteFilter, setInviteFilter] = useState("all");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // HR override of the grade basis in the detail panel; null = follow prodi.
+  const [detailBasis, setDetailBasis] = useState<AssessmentMode | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // Row-level "batalkan undangan" — confirmed before it fires.
@@ -97,22 +107,27 @@ export default function JobTalentPoolPage() {
   >(new Map());
   const inFlight = useRef<Set<string>>(new Set());
 
+  // Keyed by (talent, basis): the same talent yields different per-requirement
+  // numbers depending on which grade weights the similarity.
+  const breakdownKey = (talentId: string, mode: AssessmentMode) => `${talentId}:${mode}`;
+
   const fetchBreakdown = useCallback(
-    (talentId: string) => {
-      if (inFlight.current.has(talentId)) return;
-      inFlight.current.add(talentId);
-      getJobMatchBreakdown(talentId, jobId)
+    (talentId: string, mode: AssessmentMode) => {
+      const key = breakdownKey(talentId, mode);
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
+      getJobMatchBreakdown(talentId, jobId, mode)
         .then((rows) =>
           setBreakdownCache((prev) =>
-            new Map(prev).set(talentId, { rows, status: "ready" }),
+            new Map(prev).set(key, { rows, status: "ready" }),
           ),
         )
         .catch(() =>
           setBreakdownCache((prev) =>
-            new Map(prev).set(talentId, { rows: [], status: "error" }),
+            new Map(prev).set(key, { rows: [], status: "error" }),
           ),
         )
-        .finally(() => inFlight.current.delete(talentId));
+        .finally(() => inFlight.current.delete(key));
     },
     [jobId],
   );
@@ -145,10 +160,19 @@ export default function JobTalentPoolPage() {
     return map;
   }, [invitations, jobId]);
 
+  const courseGradeMaps = useMemo(
+    () => courseGradeMapsByStudent(talentCourseGrades),
+    [talentCourseGrades],
+  );
+
   const rows = useMemo<TalentRow[]>(() => {
     return talents.map((t) => {
       const grades = gradesByStudent.get(t.id) ?? [];
-      const score = matchScoreFromRbc(gradesByCloId(grades), rbcForJob) ?? 0;
+      // Basis follows the talent's own prodi, so a prodi that records only
+      // final course grades still produces a real score instead of zeros —
+      // and the single ranked list stays meaningful.
+      const course = courseBasisFor(t.id, t.prodi_id, prodiInfo, courseGradeMaps, cloMatkul);
+      const score = matchScoreFromRbc(gradesByCloId(grades), rbcForJob, course) ?? 0;
       const invite = inviteByStudent.get(t.id) ?? null;
       const uiStatus: InviteStatus = invite ? invite.status : "not_contacted";
       return {
@@ -157,10 +181,19 @@ export default function JobTalentPoolPage() {
         matchScore: score,
         invite,
         uiStatus,
-        prodiName: t.prodi_id ? (prodiNames[t.prodi_id] ?? "—") : "—",
+        prodiName: t.prodi_id ? (prodiInfo[t.prodi_id]?.name ?? "—") : "—",
+        mode: assessmentModeOf(t.prodi_id, prodiInfo),
       };
     });
-  }, [talents, gradesByStudent, rbcForJob, inviteByStudent, prodiNames]);
+  }, [
+    talents,
+    gradesByStudent,
+    rbcForJob,
+    inviteByStudent,
+    prodiInfo,
+    courseGradeMaps,
+    cloMatkul,
+  ]);
 
   const prodiOptions = useMemo(() => {
     const set = new Set<string>();
@@ -209,27 +242,36 @@ export default function JobTalentPoolPage() {
     null;
 
   const insightTalentId = selected?.talent.id ?? null;
+  // The basis shown in the detail panel. Null = follow the talent's prodi; the
+  // HR may override it to inspect the other granularity, which never changes
+  // the ranked score in the table.
+  const insightMode: AssessmentMode = detailBasis ?? selected?.mode ?? "clo";
+  // Offering the CLO view to a talent with no CLO grades would just show zeros.
+  const canSwitchBasis = !!selected?.grades.some((g) => g.grade != null);
 
-  // Fetch the open talent's CLO breakdown if not cached. Reuses the student-side
+  // Fetch the open talent's breakdown if not cached. Reuses the student-side
   // RPC so the numbers match /student/jobs/[id].
   useEffect(() => {
     if (!insightTalentId || !jobHasRequirements) return;
-    if (breakdownCache.has(insightTalentId)) return;
-    fetchBreakdown(insightTalentId);
-  }, [insightTalentId, jobHasRequirements, breakdownCache, fetchBreakdown]);
+    if (breakdownCache.has(breakdownKey(insightTalentId, insightMode))) return;
+    fetchBreakdown(insightTalentId, insightMode);
+  }, [insightTalentId, insightMode, jobHasRequirements, breakdownCache, fetchBreakdown]);
 
   // Background-prefetch breakdowns for the visible (filtered, score-sorted)
   // talents so opening any of them is instant. Capped so a large pool doesn't
-  // fire hundreds of RPCs at once.
+  // fire hundreds of RPCs at once. Only the talent's own default basis is
+  // prefetched — an overridden basis is fetched on demand.
   useEffect(() => {
     if (!jobHasRequirements) return;
     filtered.slice(0, 25).forEach((r) => {
-      if (!breakdownCache.has(r.talent.id)) fetchBreakdown(r.talent.id);
+      if (!breakdownCache.has(breakdownKey(r.talent.id, r.mode))) {
+        fetchBreakdown(r.talent.id, r.mode);
+      }
     });
   }, [filtered, jobHasRequirements, breakdownCache, fetchBreakdown]);
 
   const currentEntry = insightTalentId
-    ? breakdownCache.get(insightTalentId)
+    ? breakdownCache.get(breakdownKey(insightTalentId, insightMode))
     : undefined;
   const breakdown = currentEntry?.status === "ready" ? currentEntry.rows : [];
   const breakdownLoading =
@@ -238,11 +280,13 @@ export default function JobTalentPoolPage() {
 
   const openTalent = (row: TalentRow) => {
     setSelectedId(row.talent.id);
+    setDetailBasis(null);
     setActionError(null);
   };
 
   const closeTalent = () => {
     setSelectedId(null);
+    setDetailBasis(null);
     setActionError(null);
   };
 
@@ -404,6 +448,7 @@ export default function JobTalentPoolPage() {
                     >
                       {inviteStatusLabel[selected.uiStatus]}
                     </span>
+                    <BasisBadge mode={selected.mode} />
                   </div>
                 </div>
               </div>
@@ -448,12 +493,49 @@ export default function JobTalentPoolPage() {
                 />
               </div>
 
+              {/* Granularity switch for the analysis below. It never changes
+                  the ranked score — that always follows the talent's prodi. */}
+              {canSwitchBasis && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl bg-surface-container-low px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="font-label text-sm font-semibold text-on-background">
+                      Rincian berdasarkan
+                    </p>
+                    <p className="font-body text-xs text-on-surface-variant">
+                      Kemiripan selalu dihitung dari CLO; yang berubah hanya
+                      sumber nilainya.
+                    </p>
+                  </div>
+                  <div role="group" aria-label="Basis nilai" className="flex gap-1 shrink-0">
+                    {([
+                      { value: "clo" as const, label: "Nilai CLO" },
+                      { value: "course" as const, label: "Nilai Mata Kuliah" },
+                    ]).map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setDetailBasis(opt.value)}
+                        aria-pressed={insightMode === opt.value}
+                        className={`px-3 py-1.5 rounded-lg font-label text-xs font-semibold transition-colors ${
+                          insightMode === opt.value
+                            ? "bg-primary text-on-primary"
+                            : "bg-surface-container text-on-surface-variant hover:text-on-surface"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <CompetencyInsight
-                key={selected.talent.id}
+                key={`${selected.talent.id}:${insightMode}`}
                 jobTitle={job.title}
                 breakdown={breakdown}
                 loading={breakdownLoading}
                 error={breakdownError}
+                gradeBasis={insightMode}
               />
 
               {selected.uiStatus === "not_contacted" && canInvite && (
@@ -750,11 +832,14 @@ export default function JobTalentPoolPage() {
                             </div>
                           </td>
                           <td className="px-4 py-3 align-top">
-                            <span
-                              className={`px-2 py-0.5 rounded-full font-label text-xs font-bold ${matchColorClass(r.matchScore)}`}
-                            >
-                              {r.matchScore}%
-                            </span>
+                            <div className="flex flex-col items-start gap-1">
+                              <span
+                                className={`px-2 py-0.5 rounded-full font-label text-xs font-bold ${matchColorClass(r.matchScore)}`}
+                              >
+                                {r.matchScore}%
+                              </span>
+                              <BasisBadge mode={r.mode} />
+                            </div>
                           </td>
                           <td className="px-4 py-3 align-top">
                             <span
@@ -816,6 +901,25 @@ export default function JobTalentPoolPage() {
         )}
       </div>
     </>
+  );
+}
+
+// Which grade basis a talent's score was computed on. Purely informational —
+// HR cannot change it; it is a property of the student's prodi.
+function BasisBadge({ mode }: { mode: AssessmentMode }) {
+  const isCourse = mode === "course";
+  return (
+    <span
+      title={
+        isCourse
+          ? "Skor dibobot nilai akhir mata kuliah (prodi ini tidak mencatat nilai per CLO)"
+          : "Skor dibobot nilai per CLO"
+      }
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-label text-[10px] font-semibold text-on-surface-variant bg-surface-container whitespace-nowrap"
+    >
+      <Icon name={isCourse ? "menu_book" : "checklist"} size={11} />
+      {isCourse ? "Mata Kuliah" : "CLO"}
+    </span>
   );
 }
 

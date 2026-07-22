@@ -47,7 +47,16 @@ export default function ProfilePage() {
       const scores = course.clos
         .map((c) => c.grade)
         .filter((g): g is number => typeof g === "number");
-      const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+      // A prodi that grades per mata kuliah has no CLO grades at all, so the
+      // CLO average would read "Belum dinilai" for a fully-graded transcript.
+      // The directly-entered final grade wins; otherwise keep the exact CLO
+      // average (unrounded) that this page has always shown.
+      const avgScore =
+        course.courseGradeSource === "direct"
+          ? course.courseGrade
+          : scores.length
+            ? scores.reduce((a, b) => a + b, 0) / scores.length
+            : null;
       return {
         ...course,
         gradedCount: scores.length,
@@ -59,9 +68,15 @@ export default function ProfilePage() {
 
   const totalCLOs = courses.reduce((acc, c) => acc + c.totalClos, 0);
   const totalSKS = courses.reduce((acc, c) => acc + (c.matkul.sks ?? 0), 0);
-  const allScores = courses
+  // Flat average over every CLO grade — unchanged for prodi that grade per CLO.
+  // Only when there is no CLO grade at all (prodi grading per mata kuliah) do we
+  // fall back to averaging the per-matkul final grades.
+  const cloScores = courses
     .flatMap((c) => c.clos.map((cl) => cl.grade))
     .filter((g): g is number => typeof g === "number");
+  const allScores = cloScores.length
+    ? cloScores
+    : courses.map((c) => c.avgScore).filter((g): g is number => typeof g === "number");
   const ipk = allScores.length ? (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(1) : "—";
 
   const semesters = useMemo(

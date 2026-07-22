@@ -23,24 +23,52 @@ interface MKCoverage {
   cloCount: number;
   /** Students whose CLOs are ALL graded — a partially graded student is not counted. */
   graded: number;
-  /** Students with some, but not all, CLOs graded. */
+  /** Students with some, but not all, CLOs graded. Always 0 in 'course' mode. */
   partial: number;
   progress: number;
   key: CoverageKey;
 }
 
 export default function AdminGradesPage() {
-  const { adminCtx, matkul: matkuls, clos, studentClos, students, loading, error } = useAdminData();
+  const {
+    adminCtx,
+    matkul: matkuls,
+    clos,
+    studentClos,
+    studentMatkul,
+    students,
+    loading,
+    error,
+  } = useAdminData();
   const [search, setSearch] = useState("");
   const [semesterFilter, setSemesterFilter] = useState("all");
   const [coverageFilter, setCoverageFilter] = useState("all");
 
   const studentsCount = students.length;
+  // Where this prodi records grades. In 'course' mode a matkul needs exactly one
+  // grade per student; in 'clo' mode it needs one per CLO per student.
+  const mode = adminCtx?.assessment_mode ?? "clo";
 
   const coverages = useMemo<MKCoverage[]>(() => {
     return matkuls.map((mk) => {
       const mkCloIds = new Set(clos.filter((c) => c.matkul_id === mk.id).map((c) => c.id));
       const cloCount = mkCloIds.size;
+
+      if (mode === "course") {
+        // One final grade per student — "partial" has no meaning here. CLOs are
+        // still tracked (they drive matching) but do not gate grade entry.
+        const graded = new Set(
+          studentMatkul
+            .filter((sm) => sm.matkul_id === mk.id && sm.grade != null)
+            .map((sm) => sm.student_id),
+        ).size;
+        const progress = studentsCount > 0 ? Math.round((graded / studentsCount) * 100) : 0;
+        let key: CoverageKey = "belum";
+        if (studentsCount > 0 && graded === studentsCount) key = "lengkap";
+        else if (graded > 0) key = "sebagian";
+        return { mk, cloCount, graded, partial: 0, progress, key };
+      }
+
       if (cloCount === 0) {
         return { mk, cloCount: 0, graded: 0, partial: 0, progress: 0, key: "no-clo" as CoverageKey };
       }
@@ -64,7 +92,7 @@ export default function AdminGradesPage() {
       else if (graded > 0 || partial > 0) key = "sebagian";
       return { mk, cloCount, graded, partial, progress, key };
     });
-  }, [matkuls, clos, studentClos, studentsCount]);
+  }, [matkuls, clos, studentClos, studentMatkul, studentsCount, mode]);
 
   const filteredCoverages = coverages.filter(({ mk, key }) => {
     const matchSearch =
@@ -91,14 +119,23 @@ export default function AdminGradesPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <h1 className="font-headline text-3xl font-bold text-on-background">
-            Penilaian CLO Mahasiswa
+            {mode === "course" ? "Nilai Akhir Mata Kuliah" : "Penilaian CLO Mahasiswa"}
           </h1>
           <p className="font-body text-on-surface-variant">
-            {adminCtx
-              ? `Input hasil asesmen mahasiswa Prodi ${adminCtx.prodi_name} per CLO mata kuliah.`
-              : "Input hasil asesmen mahasiswa untuk setiap CLO per mata kuliah."}
+            {mode === "course"
+              ? `Input satu nilai akhir per mata kuliah untuk mahasiswa Prodi ${adminCtx?.prodi_name ?? ""}.`.trim()
+              : adminCtx
+                ? `Input hasil asesmen mahasiswa Prodi ${adminCtx.prodi_name} per CLO mata kuliah.`
+                : "Input hasil asesmen mahasiswa untuk setiap CLO per mata kuliah."}
           </p>
         </div>
+        <Link
+          href="/admin/settings"
+          className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-container-low hover:bg-surface-container-high transition-colors font-label text-xs font-semibold text-on-surface-variant"
+        >
+          <Icon name="settings" size={15} />
+          Mode: {mode === "course" ? "Per Mata Kuliah" : "Per CLO"}
+        </Link>
       </div>
 
       {error && (
@@ -188,6 +225,9 @@ export default function AdminGradesPage() {
               ) : filteredCoverages.map(({ mk, cloCount, graded, partial, progress, key }) => {
                 const hasCLO = cloCount > 0;
                 const isComplete = key === "lengkap";
+                // In 'course' mode the grade is per matkul, so entry does not
+                // depend on CLOs existing — they only matter for matching.
+                const canGrade = mode === "course" || hasCLO;
                 return (
                   <tr
                     key={mk.id}
@@ -231,7 +271,7 @@ export default function AdminGradesPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 min-w-48">
-                      {hasCLO ? (
+                      {canGrade ? (
                         <div className="space-y-1.5">
                           <div className="flex justify-between items-center gap-3">
                             <span className="font-label text-xs text-on-surface-variant whitespace-nowrap">
@@ -260,7 +300,7 @@ export default function AdminGradesPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      {hasCLO ? (
+                      {canGrade ? (
                         <Link
                           href={`/admin/grades/${mk.kode.toLowerCase()}`}
                           className="px-3 py-1.5 font-label text-xs font-bold text-primary hover:bg-primary-fixed rounded-lg transition-colors inline-flex items-center gap-1"

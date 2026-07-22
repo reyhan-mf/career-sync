@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "./client";
+import type { AssessmentMode } from "./superadmin-queries";
 
 export interface AdminProdiInfo {
   prodi_id: string;
@@ -9,6 +10,8 @@ export interface AdminProdiInfo {
   admin_name: string;
   fakultas: string | null;
   email: string | null;
+  /** Where this prodi records grades — drives the grade-entry UI and scoring. */
+  assessment_mode: AssessmentMode;
 }
 
 interface State {
@@ -37,7 +40,7 @@ export function useAdminProdi(): State {
 
       const { data, error } = await supabase
         .from("admin_users")
-        .select(`name, email, prodi:prodi_id ( id, name, fakultas )`)
+        .select(`name, email, prodi:prodi_id ( id, name, fakultas, assessment_mode )`)
         .eq("user_id", session.user.id)
         .is("deleted_at", null)
         .maybeSingle();
@@ -55,7 +58,12 @@ export function useAdminProdi(): State {
         });
         return;
       }
-      const prodi = data.prodi as unknown as { id: string; name: string; fakultas: string | null };
+      const prodi = data.prodi as unknown as {
+        id: string;
+        name: string;
+        fakultas: string | null;
+        assessment_mode: AssessmentMode | null;
+      };
       setState({
         data: {
           prodi_id: prodi.id,
@@ -63,6 +71,7 @@ export function useAdminProdi(): State {
           admin_name: data.name,
           fakultas: prodi.fakultas,
           email: data.email,
+          assessment_mode: prodi.assessment_mode ?? "clo",
         },
         loading: false,
         error: null,

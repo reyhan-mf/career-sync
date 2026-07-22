@@ -16,6 +16,7 @@ import {
   type StudentInvitation,
 } from "./invitation-queries";
 import type { StudentCLO } from "./admin-queries";
+import type { AssessmentMode } from "./superadmin-queries";
 import { reportStudentError } from "./studentErrors";
 import { clearRoleCache, resolveUserRole } from "./currentRole";
 
@@ -28,6 +29,11 @@ export interface StudentDataState {
   // { job_id: match score 0-100 }, computed in Postgres from grades + CLO/req
   // similarity. Empty until loaded; absent job_id ⇒ no score yet.
   matchScores: Record<string, number>;
+  // Which grade the scores above are weighted by. Initialised from the prodi's
+  // assessment_mode; the student may flip it to inspect the other basis, which
+  // refetches every score so the list, the badges and the per-requirement
+  // breakdown never disagree.
+  gradeBasis: AssessmentMode;
   loading: boolean;
   error: string | null;
 }
@@ -39,6 +45,7 @@ const initialState: StudentDataState = {
   applications: [],
   invitations: [],
   matchScores: {},
+  gradeBasis: "clo",
   loading: false,
   error: null,
 };
@@ -87,10 +94,27 @@ function scheduleMatchScoreRefresh() {
   if (matchRefreshTimer) clearTimeout(matchRefreshTimer);
   matchRefreshTimer = setTimeout(() => {
     matchRefreshTimer = null;
-    getJobMatchScores(studentId)
+    getJobMatchScores(studentId, state.gradeBasis)
       .then((matchScores) => setState({ matchScores }))
       .catch(() => {});
   }, 800);
+}
+
+// A student_matkul change moves the per-matkul final grade, which the transcript
+// shows and the 'course' basis scores against. The transcript is one small
+// query, so refetch it wholesale rather than patching rows by hand.
+let transcriptRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleTranscriptRefresh() {
+  const profile = state.profile;
+  if (!profile) return;
+  if (transcriptRefreshTimer) clearTimeout(transcriptRefreshTimer);
+  transcriptRefreshTimer = setTimeout(() => {
+    transcriptRefreshTimer = null;
+    getStudentTranscript(profile.student.id, profile.student.prodi_id)
+      .then((transcript) => setState({ transcript }))
+      .catch(() => {});
+  }, 400);
+  scheduleMatchScoreRefresh();
 }
 
 // Realtime application payloads don't include the joined `jobs` row, so rather
@@ -129,6 +153,7 @@ function subscribeRealtime(studentId: string) {
   const ourTopics = [
     `student-self-${studentId}`,
     `student-grades-${studentId}`,
+    `student-course-grades-${studentId}`,
     `student-apps-${studentId}`,
     `student-invites-${studentId}`,
   ];
@@ -166,6 +191,16 @@ function subscribeRealtime(studentId: string) {
     )
     .subscribe();
 
+  // Watch this student's final per-matkul grades.
+  const courseGradesCh = supabase
+    .channel(`student-course-grades-${studentId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "student_matkul", filter: `student_id=eq.${studentId}` },
+      () => scheduleTranscriptRefresh(),
+    )
+    .subscribe();
+
   // Watch this student's applications (status changes from HR, etc.)
   const appsCh = supabase
     .channel(`student-apps-${studentId}`)
@@ -186,7 +221,7 @@ function subscribeRealtime(studentId: string) {
     )
     .subscribe();
 
-  channels = [selfCh, gradesCh, appsCh, invitesCh];
+  channels = [selfCh, gradesCh, courseGradesCh, appsCh, invitesCh];
 }
 
 export function ensureStudentDataInitialized(): Promise<void> {
@@ -196,14 +231,17 @@ export function ensureStudentDataInitialized(): Promise<void> {
     try {
       const profile = await getCurrentStudentProfile();
       currentUserId = profile.student.user_id ?? currentUserId;
+      // The prodi decides the default basis: a prodi that only records final
+      // course grades must not open on an all-zero CLO-weighted ranking.
+      const gradeBasis: AssessmentMode = profile.prodi?.assessment_mode ?? "clo";
       const [transcript, jobs, applications, invitations, matchScores] = await Promise.all([
         getStudentTranscript(profile.student.id, profile.student.prodi_id),
         getActiveJobs().catch(() => [] as JobListing[]),
         getMyApplications(profile.student.id).catch(() => [] as StudentApplication[]),
         getMyInvitations(profile.student.id).catch(() => [] as StudentInvitation[]),
-        getJobMatchScores(profile.student.id).catch(() => ({}) as Record<string, number>),
+        getJobMatchScores(profile.student.id, gradeBasis).catch(() => ({}) as Record<string, number>),
       ]);
-      setState({ profile, transcript, jobs, applications, invitations, matchScores, loading: false, error: null });
+      setState({ profile, transcript, jobs, applications, invitations, matchScores, gradeBasis, loading: false, error: null });
       subscribeRealtime(profile.student.id);
     } catch (e) {
       setState({ loading: false, error: reportStudentError(e, "studentDataStore.init") });
@@ -247,6 +285,25 @@ export const studentDataMutators = {
   setMatchScore(jobId: string, score: number) {
     if (state.matchScores[jobId] === score) return;
     setState({ matchScores: { ...state.matchScores, [jobId]: score } });
+  },
+  /**
+   * Switch which grade the match scores are weighted by. Every score is
+   * refetched under the new basis — showing a mix of CLO-weighted and
+   * course-weighted numbers in one ranked list would be meaningless. The old
+   * scores are cleared first so no stale badge lingers during the refetch.
+   */
+  setGradeBasis(mode: AssessmentMode) {
+    if (state.gradeBasis === mode) return;
+    const studentId = state.profile?.student.id;
+    setState({ gradeBasis: mode, matchScores: {} });
+    if (!studentId) return;
+    getJobMatchScores(studentId, mode)
+      .then((matchScores) => {
+        // Ignore a response that lost the race with a newer basis switch.
+        if (state.gradeBasis !== mode) return;
+        setState({ matchScores });
+      })
+      .catch(() => {});
   },
 };
 

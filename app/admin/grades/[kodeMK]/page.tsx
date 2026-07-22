@@ -20,12 +20,16 @@ import {
   getMatkulByKode,
   getStudents,
   getStudentCLOsByMatkul,
+  getStudentMatkulByMatkul,
   upsertStudentCLO,
   deleteStudentCLO,
+  upsertStudentMatkul,
+  deleteStudentMatkul,
   type CLO,
   type Matkul,
   type Student,
   type StudentCLO,
+  type StudentMatkul,
 } from "@/lib/supabase/admin-queries";
 import { reportAdminError } from "@/lib/supabase/adminErrors";
 
@@ -47,20 +51,40 @@ function statusBadge(s: StatusKey) {
   return { bg: "bg-tertiary-fixed", text: "text-on-tertiary-container", label: "Belum" };
 }
 
+/**
+ * One gradable column of the matrix. In 'clo' mode there is one per CLO; in
+ * 'course' mode there is exactly one — the matkul's final grade. Modelling both
+ * as columns keeps a single table, a single modal and a single filter pipeline.
+ */
+interface GradeColumn {
+  /** clo_id in 'clo' mode, matkul_id in 'course' mode. */
+  id: string;
+  header: string;
+  /** Tooltip / modal subtitle: the CLO statement, or the matkul name. */
+  text: string;
+}
+
 interface CellTarget {
   studentId: string;
-  cloId: string;
-  existing: StudentCLO | null;
+  columnId: string;
+  existingGrade: number | null;
+  hasExisting: boolean;
 }
 
 export default function MKGradesMatrixPage() {
   const params = useParams<{ kodeMK: string }>();
-  const { setStudentClos: setSharedStudentClos } = useAdminData();
+  const {
+    adminCtx,
+    setStudentClos: setSharedStudentClos,
+    setStudentMatkul: setSharedStudentMatkul,
+  } = useAdminData();
+  const mode = adminCtx?.assessment_mode ?? "clo";
 
   const [mk, setMk] = useState<Matkul | null>(null);
   const [clos, setClos] = useState<CLO[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [studentCLOs, setStudentCLOs] = useState<StudentCLO[]>([]);
+  const [studentMatkuls, setStudentMatkuls] = useState<StudentMatkul[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +95,7 @@ export default function MKGradesMatrixPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [target, setTarget] = useState<CellTarget | null>(null);
   const [gradeForm, setGradeForm] = useState<string>("");
-  const [deleteTarget, setDeleteTarget] = useState<StudentCLO | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CellTarget | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,14 +108,16 @@ export default function MKGradesMatrixPage() {
           getCLOsByMatkul(matkulData.id),
           getStudents(),
           getStudentCLOsByMatkul(matkulData.id),
+          getStudentMatkulByMatkul(matkulData.id),
         ]);
       })
       .then((results) => {
         if (cancelled || !Array.isArray(results)) return;
-        const [closData, studentsData, scData] = results;
+        const [closData, studentsData, scData, smData] = results;
         setClos(closData);
         setStudents(studentsData);
         setStudentCLOs(scData);
+        setStudentMatkuls(smData);
         setLoading(false);
       })
       .catch((e) => {
@@ -103,15 +129,34 @@ export default function MKGradesMatrixPage() {
     return () => { cancelled = true; };
   }, [params.kodeMK]);
 
+  // Columns are the CLOs, or a single "Nilai Akhir" column in 'course' mode.
+  const columns = useMemo<GradeColumn[]>(() => {
+    if (mode === "course") {
+      return mk ? [{ id: mk.id, header: "Nilai Akhir", text: mk.nama }] : [];
+    }
+    return clos.map((c) => ({
+      id: c.id,
+      header: (c.clo_code ?? "").replace(`${mk?.kode ?? ""}-`, ""),
+      text: c.clo_text,
+    }));
+  }, [mode, clos, mk]);
+
+  // studentId → columnId → grade. Sourced from student_clos or student_matkul
+  // depending on the mode, so everything downstream is source-agnostic.
   const gradeMap = useMemo(() => {
-    const map = new Map<string, Map<string, StudentCLO>>();
-    studentCLOs.forEach((sc) => {
-      const inner = map.get(sc.student_id) ?? new Map<string, StudentCLO>();
-      inner.set(sc.clo_id, sc);
-      map.set(sc.student_id, inner);
-    });
+    const map = new Map<string, Map<string, number | null>>();
+    const put = (studentId: string, columnId: string, grade: number | null) => {
+      const inner = map.get(studentId) ?? new Map<string, number | null>();
+      inner.set(columnId, grade);
+      map.set(studentId, inner);
+    };
+    if (mode === "course") {
+      studentMatkuls.forEach((sm) => put(sm.student_id, sm.matkul_id, sm.grade));
+    } else {
+      studentCLOs.forEach((sc) => put(sc.student_id, sc.clo_id, sc.grade));
+    }
     return map;
-  }, [studentCLOs]);
+  }, [mode, studentCLOs, studentMatkuls]);
 
   const angkatanOptions = useMemo(
     () => [...new Set(students.map((s) => String(s.angkatan ?? "")).filter(Boolean))].sort(),
@@ -120,15 +165,15 @@ export default function MKGradesMatrixPage() {
 
   const rows = useMemo(() =>
     students.map((s) => {
-      const gradedClos = gradeMap.get(s.id) ?? new Map<string, StudentCLO>();
-      const dinilaiCount = gradedClos.size;
-      const totalClos = clos.length;
+      const graded = gradeMap.get(s.id) ?? new Map<string, number | null>();
+      const dinilaiCount = graded.size;
+      const totalCols = columns.length;
       let status: StatusKey = "belum";
-      if (totalClos > 0 && dinilaiCount === totalClos) status = "lengkap";
+      if (totalCols > 0 && dinilaiCount === totalCols) status = "lengkap";
       else if (dinilaiCount > 0) status = "sebagian";
-      return { student: s, gradedClos, dinilaiCount, totalClos, status };
+      return { student: s, graded, dinilaiCount, totalCols, status };
     }),
-    [students, gradeMap, clos.length],
+    [students, gradeMap, columns.length],
   );
 
   const filtered = useMemo(() =>
@@ -149,10 +194,12 @@ export default function MKGradesMatrixPage() {
     return { total: rows.length, dinilai, lengkap };
   }, [rows]);
 
-  const openCell = (studentId: string, cloId: string) => {
-    const existing = gradeMap.get(studentId)?.get(cloId) ?? null;
-    setTarget({ studentId, cloId, existing });
-    setGradeForm(existing?.grade != null ? String(existing.grade) : "");
+  const openCell = (studentId: string, columnId: string) => {
+    const inner = gradeMap.get(studentId);
+    const hasExisting = !!inner?.has(columnId);
+    const existingGrade = inner?.get(columnId) ?? null;
+    setTarget({ studentId, columnId, existingGrade, hasExisting });
+    setGradeForm(existingGrade != null ? String(existingGrade) : "");
   };
 
   const closeModal = () => { setTarget(null); setGradeForm(""); setError(null); };
@@ -166,24 +213,36 @@ export default function MKGradesMatrixPage() {
       return;
     }
     const rounded = Math.round(numeric);
+    const { studentId, columnId } = target;
     setSaving(true);
     setError(null);
     try {
-      await upsertStudentCLO(target.studentId, target.cloId, rounded);
-      const newSC: StudentCLO = { student_id: target.studentId, clo_id: target.cloId, grade: rounded };
-      const mergeSC = (prev: StudentCLO[]) => {
-        const filtered = prev.filter(
-          (sc) => !(sc.student_id === target.studentId && sc.clo_id === target.cloId),
-        );
-        return [...filtered, newSC];
-      };
-      setStudentCLOs(mergeSC);
-      // Keep the shared admin store (used by the coverage list & dashboard) in
-      // sync immediately, instead of waiting on a realtime event to arrive.
-      setSharedStudentClos(mergeSC);
+      if (mode === "course") {
+        await upsertStudentMatkul(studentId, columnId, rounded);
+        const merge = (prev: StudentMatkul[]) => [
+          ...prev.filter(
+            (sm) => !(sm.student_id === studentId && sm.matkul_id === columnId),
+          ),
+          { student_id: studentId, matkul_id: columnId, grade: rounded },
+        ];
+        setStudentMatkuls(merge);
+        setSharedStudentMatkul(merge);
+      } else {
+        await upsertStudentCLO(studentId, columnId, rounded);
+        const merge = (prev: StudentCLO[]) => [
+          ...prev.filter(
+            (sc) => !(sc.student_id === studentId && sc.clo_id === columnId),
+          ),
+          { student_id: studentId, clo_id: columnId, grade: rounded },
+        ];
+        setStudentCLOs(merge);
+        // Keep the shared admin store (used by the coverage list & dashboard) in
+        // sync immediately, instead of waiting on a realtime event to arrive.
+        setSharedStudentClos(merge);
+      }
       closeModal();
     } catch (e) {
-      setError(reportAdminError(e, "upsertStudentCLO"));
+      setError(reportAdminError(e, mode === "course" ? "upsertStudentMatkul" : "upsertStudentCLO"));
     } finally {
       setSaving(false);
     }
@@ -191,19 +250,26 @@ export default function MKGradesMatrixPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    const { studentId, columnId } = deleteTarget;
     setSaving(true);
     try {
-      await deleteStudentCLO(deleteTarget.student_id, deleteTarget.clo_id);
-      const removeSC = (prev: StudentCLO[]) =>
-        prev.filter(
-          (sc) => !(sc.student_id === deleteTarget.student_id && sc.clo_id === deleteTarget.clo_id),
-        );
-      setStudentCLOs(removeSC);
-      setSharedStudentClos(removeSC);
+      if (mode === "course") {
+        await deleteStudentMatkul(studentId, columnId);
+        const remove = (prev: StudentMatkul[]) =>
+          prev.filter((sm) => !(sm.student_id === studentId && sm.matkul_id === columnId));
+        setStudentMatkuls(remove);
+        setSharedStudentMatkul(remove);
+      } else {
+        await deleteStudentCLO(studentId, columnId);
+        const remove = (prev: StudentCLO[]) =>
+          prev.filter((sc) => !(sc.student_id === studentId && sc.clo_id === columnId));
+        setStudentCLOs(remove);
+        setSharedStudentClos(remove);
+      }
       setDeleteTarget(null);
       setTarget(null);
     } catch (e) {
-      setError(reportAdminError(e, "deleteStudentCLO"));
+      setError(reportAdminError(e, mode === "course" ? "deleteStudentMatkul" : "deleteStudentCLO"));
     } finally {
       setSaving(false);
     }
@@ -240,7 +306,8 @@ export default function MKGradesMatrixPage() {
   }
 
   const targetStudent = target ? students.find((s) => s.id === target.studentId) : null;
-  const targetClo = target ? clos.find((c) => c.id === target.cloId) : null;
+  const targetColumn = target ? columns.find((c) => c.id === target.columnId) : null;
+  const deleteColumn = deleteTarget ? columns.find((c) => c.id === deleteTarget.columnId) : null;
 
   return (
     <>
@@ -249,7 +316,7 @@ export default function MKGradesMatrixPage() {
           <div className="bg-surface-container-lowest rounded-2xl p-6 w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-headline text-xl font-bold text-on-background">
-                {target.existing ? "Edit Nilai" : "Tambah Nilai"}
+                {target.hasExisting ? "Edit Nilai" : "Tambah Nilai"}
               </h2>
               <button type="button" onClick={closeModal} className="p-2 hover:bg-surface-container rounded-lg transition-colors">
                 <Icon name="close" className="text-on-surface-variant" />
@@ -268,11 +335,19 @@ export default function MKGradesMatrixPage() {
               </div>
               <div className="px-4 py-3 bg-surface-container-low rounded-xl flex items-start gap-3">
                 <div className="w-9 h-9 bg-tertiary-fixed rounded-lg flex items-center justify-center shrink-0">
-                  <Icon name="school" className="text-on-tertiary-container" size={18} />
+                  <Icon
+                    name={mode === "course" ? "menu_book" : "school"}
+                    className="text-on-tertiary-container"
+                    size={18}
+                  />
                 </div>
                 <div className="min-w-0">
-                  <p className="font-label text-sm font-bold text-primary truncate">{targetClo?.clo_code}</p>
-                  <p className="font-label text-xs text-on-surface-variant line-clamp-2">{targetClo?.clo_text}</p>
+                  <p className="font-label text-sm font-bold text-primary truncate">
+                    {mode === "course" ? `Nilai Akhir ${mk?.kode ?? ""}` : targetColumn?.header}
+                  </p>
+                  <p className="font-label text-xs text-on-surface-variant line-clamp-2">
+                    {targetColumn?.text}
+                  </p>
                 </div>
               </div>
             </div>
@@ -299,10 +374,10 @@ export default function MKGradesMatrixPage() {
                 />
               </div>
               <div className="flex gap-3 pt-2">
-                {target.existing && (
+                {target.hasExisting && (
                   <button
                     type="button"
-                    onClick={() => setDeleteTarget(target.existing)}
+                    onClick={() => setDeleteTarget(target)}
                     className="px-4 py-3 rounded-xl border border-error/30 font-label text-sm font-semibold text-error hover:bg-error-container transition-colors inline-flex items-center gap-1.5"
                   >
                     <Icon name="delete" size={16} /> Hapus
@@ -312,7 +387,7 @@ export default function MKGradesMatrixPage() {
                   Batal
                 </button>
                 <button type="submit" disabled={saving} className="flex-1 btn-gradient font-label font-bold rounded-xl py-3 disabled:opacity-60">
-                  {saving ? "Menyimpan..." : target.existing ? "Simpan" : "Tambah Nilai"}
+                  {saving ? "Menyimpan..." : target.hasExisting ? "Simpan" : "Tambah Nilai"}
                 </button>
               </div>
             </form>
@@ -325,7 +400,11 @@ export default function MKGradesMatrixPage() {
         title="Hapus Nilai?"
         description={
           <>
-            Nilai CLO <span className="font-bold text-on-background">{clos.find((c) => c.id === deleteTarget?.clo_id)?.clo_code}</span> akan dihapus.
+            {mode === "course" ? "Nilai akhir mata kuliah " : "Nilai CLO "}
+            <span className="font-bold text-on-background">
+              {mode === "course" ? mk?.nama : deleteColumn?.header}
+            </span>{" "}
+            akan dihapus.
           </>
         }
         loading={saving}
@@ -352,6 +431,12 @@ export default function MKGradesMatrixPage() {
                   <span className="font-label text-xs text-on-surface-variant">{mk.sks} SKS • Semester {mk.semester}</span>
                 </div>
                 <h1 className="font-headline text-2xl font-bold text-on-background mb-1">Penilaian: {mk.nama}</h1>
+                <span className="inline-flex items-center gap-1.5 font-label text-xs font-semibold text-on-surface-variant">
+                  <Icon name={mode === "course" ? "menu_book" : "checklist"} size={14} />
+                  {mode === "course"
+                    ? "Mode nilai per mata kuliah — satu nilai akhir per mahasiswa"
+                    : "Mode nilai per CLO — satu nilai untuk tiap CLO"}
+                </span>
               </div>
             </div>
             <Link
@@ -388,7 +473,9 @@ export default function MKGradesMatrixPage() {
           </div>
         </div>
 
-        {clos.length === 0 ? (
+        {/* In 'course' mode there is always exactly one column, so this branch
+            only ever fires for a CLO-mode matkul with no CLOs defined yet. */}
+        {columns.length === 0 ? (
           <div className="bg-surface-container-lowest rounded-2xl p-10 shadow-ambient ghost-border text-center">
             <Icon name="school" size={40} className="text-on-surface-variant mx-auto mb-3" />
             <h3 className="font-headline text-lg font-bold text-on-background mb-2">Belum ada CLO</h3>
@@ -442,9 +529,9 @@ export default function MKGradesMatrixPage() {
                       <th className="font-label text-xs text-on-surface-variant uppercase tracking-wider px-4 py-4 text-left sticky left-0 bg-surface-container-low z-10">NIM</th>
                       <th className="font-label text-xs text-on-surface-variant uppercase tracking-wider px-4 py-4 text-left">Mahasiswa</th>
                       <th className="font-label text-xs text-on-surface-variant uppercase tracking-wider px-4 py-4 text-left">Status</th>
-                      {clos.map((c) => (
-                        <th key={c.id} className="font-label text-xs text-on-surface-variant uppercase tracking-wider px-4 py-4 text-center min-w-24" title={c.clo_text}>
-                          {(c.clo_code ?? "").replace(`${mk.kode}-`, "")}
+                      {columns.map((c) => (
+                        <th key={c.id} className="font-label text-xs text-on-surface-variant uppercase tracking-wider px-4 py-4 text-center min-w-24" title={c.text}>
+                          {c.header}
                         </th>
                       ))}
                     </tr>
@@ -469,20 +556,21 @@ export default function MKGradesMatrixPage() {
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-label text-xs font-semibold ${badge.bg} ${badge.text} whitespace-nowrap`}>
                               {badge.label}
-                              <span className="opacity-70">({r.dinilaiCount}/{r.totalClos})</span>
+                              <span className="opacity-70">({r.dinilaiCount}/{r.totalCols})</span>
                             </span>
                           </td>
-                          {clos.map((c) => {
-                            const sc = r.gradedClos.get(c.id);
+                          {columns.map((c) => {
+                            const hasGrade = r.graded.has(c.id);
+                            const grade = r.graded.get(c.id) ?? null;
                             return (
                               <td key={c.id} className="px-2 py-3 text-center">
-                                {sc ? (
+                                {hasGrade ? (
                                   <button
                                     onClick={() => openCell(r.student.id, c.id)}
                                     className="group inline-flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg hover:bg-surface-container transition-colors w-full max-w-24 mx-auto"
                                   >
-                                    <span className={`px-2.5 py-0.5 rounded-full font-label text-xs font-bold ${gradeColor(sc.grade)}`}>
-                                      {sc.grade ?? "—"}
+                                    <span className={`px-2.5 py-0.5 rounded-full font-label text-xs font-bold ${gradeColor(grade)}`}>
+                                      {grade ?? "—"}
                                     </span>
                                   </button>
                                 ) : (
@@ -501,7 +589,7 @@ export default function MKGradesMatrixPage() {
                     })}
                     {filtered.length === 0 && (
                       <tr className="border-t border-outline-variant/10">
-                        <td colSpan={3 + clos.length} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
+                        <td colSpan={3 + columns.length} className="px-6 py-10 text-center font-body text-sm text-on-surface-variant">
                           Tidak ada mahasiswa yang cocok dengan filter.
                         </td>
                       </tr>

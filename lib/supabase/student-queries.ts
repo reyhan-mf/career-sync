@@ -1,14 +1,24 @@
 import { supabase } from "./client";
 import type { CLO, Matkul, Student, StudentCLO } from "./admin-queries";
+import type { AssessmentMode } from "./superadmin-queries";
 
 export interface StudentProfile {
   student: Student;
-  prodi: { id: string; name: string; fakultas: string | null } | null;
+  prodi: {
+    id: string;
+    name: string;
+    fakultas: string | null;
+    /** Whether this prodi grades per CLO or per mata kuliah. */
+    assessment_mode: AssessmentMode;
+  } | null;
 }
 
 export interface CourseRecord {
   matkul: Matkul;
   clos: (CLO & { grade: number | null })[];
+  /** Final grade for the whole matkul — typed in directly, or averaged from CLOs. */
+  courseGrade: number | null;
+  courseGradeSource: "direct" | "clo_avg" | null;
 }
 
 /**
@@ -21,7 +31,7 @@ export async function getCurrentStudentProfile(): Promise<StudentProfile> {
 
   const { data, error } = await supabase
     .from("students")
-    .select(`*, prodi:prodi_id ( id, name, fakultas )`)
+    .select(`*, prodi:prodi_id ( id, name, fakultas, assessment_mode )`)
     .eq("user_id", session.user.id)
     .maybeSingle();
   if (error) throw error;
@@ -30,9 +40,17 @@ export async function getCurrentStudentProfile(): Promise<StudentProfile> {
   }
 
   const { prodi, ...student } = data as Student & {
-    prodi: { id: string; name: string; fakultas: string | null } | null;
+    prodi: {
+      id: string;
+      name: string;
+      fakultas: string | null;
+      assessment_mode: AssessmentMode | null;
+    } | null;
   };
-  return { student: student as Student, prodi };
+  return {
+    student: student as Student,
+    prodi: prodi ? { ...prodi, assessment_mode: prodi.assessment_mode ?? "clo" } : null,
+  };
 }
 
 /**
@@ -76,7 +94,26 @@ export async function getStudentTranscript(
     studentClos = (scRows ?? []) as StudentCLO[];
   }
 
-  // 4. Assemble records — group CLOs by matkul, attach grade
+  // 4. Final per-matkul grades. The `student_course_grade` view resolves this
+  //    for both kinds of prodi: an explicit student_matkul row when the prodi
+  //    grades per mata kuliah, otherwise the average of the student's CLO grades.
+  const { data: cgRows, error: cgErr } = await supabase
+    .from("student_course_grade")
+    .select("matkul_id, grade, source")
+    .eq("student_id", studentId)
+    .in("matkul_id", matkulIds);
+  if (cgErr) throw cgErr;
+  const courseGrades = new Map(
+    (cgRows ?? []).map((r) => [
+      r.matkul_id as string,
+      {
+        grade: Number(r.grade),
+        source: r.source as "direct" | "clo_avg",
+      },
+    ]),
+  );
+
+  // 5. Assemble records — group CLOs by matkul, attach grade
   const gradeByClo = new Map(studentClos.map((sc) => [sc.clo_id, sc.grade]));
   const closByMatkul = new Map<string, (CLO & { grade: number | null })[]>();
   clos.forEach((c) => {
@@ -85,10 +122,15 @@ export async function getStudentTranscript(
     closByMatkul.set(c.matkul_id, list);
   });
 
-  return matkul.map((mk) => ({
-    matkul: mk,
-    clos: closByMatkul.get(mk.id) ?? [],
-  }));
+  return matkul.map((mk) => {
+    const cg = courseGrades.get(mk.id) ?? null;
+    return {
+      matkul: mk,
+      clos: closByMatkul.get(mk.id) ?? [],
+      courseGrade: cg?.grade ?? null,
+      courseGradeSource: cg?.source ?? null,
+    };
+  });
 }
 
 // ─── Job listings (read-only for students) ─────────────────────────────────
@@ -132,20 +174,27 @@ export async function getActiveJobs(): Promise<JobListing[]> {
 // Returns { job_id: score 0-100 } for every active job, ranked. Scoring runs
 // in Postgres via the `student_job_matches` RPC: for each requirement we use
 // its precomputed best-matching CLO (req_best_clo) weighted by the student's
-// grade on that CLO. No embeddings are sent over the wire — see
-// supabase migration `student_job_match_use_precomputed`.
+// grade. `mode` picks where that grade comes from — the CLO itself ('clo') or
+// the final grade of the matkul owning it ('course'); the similarity term is
+// identical either way. See supabase migration `20260722_course_grade_mode`.
+// No embeddings are sent over the wire.
 //
 // PostgREST caps any single response at db-max-rows (1000 by default), even for
 // RPCs, so we page through with .range() — otherwise jobs ranked below the top
 // 1000 would have no score in the UI.
 export async function getJobMatchScores(
   studentId: string,
+  mode: AssessmentMode = "clo",
 ): Promise<Record<string, number>> {
   const pageSize = 1000;
   const out: Record<string, number> = {};
   for (let page = 0; ; page++) {
     const { data, error } = await supabase
-      .rpc("student_job_matches", { p_student_id: studentId, p_limit: 100000 })
+      .rpc("student_job_matches", {
+        p_student_id: studentId,
+        p_limit: 100000,
+        p_mode: mode,
+      })
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
     const rows = (data ?? []) as { job_id: string; score: number }[];
@@ -166,21 +215,34 @@ export interface ReqMatchBreakdown {
   best_clo_id: string | null;
   clo_code: string | null;
   clo_text: string | null;
+  matkul_id: string | null;
   matkul_nama: string | null;
+  /** The student's grade on the matched CLO. Null when never assessed. */
   grade: number | null;
+  /** Final grade of the matkul owning that CLO (direct or averaged). */
+  course_grade: number | null;
+  grade_source: "direct" | "clo_avg" | null;
+  /** sim × the grade selected by `mode`, 0-100. */
   contribution: number;
 }
 
 export async function getJobMatchBreakdown(
   studentId: string,
   jobId: string,
+  mode: AssessmentMode = "clo",
 ): Promise<ReqMatchBreakdown[]> {
   const { data, error } = await supabase.rpc("student_job_match_breakdown", {
     p_student_id: studentId,
     p_job_id: jobId,
+    p_mode: mode,
   });
   if (error) throw error;
-  return (data ?? []) as ReqMatchBreakdown[];
+  // `course_grade` is numeric in Postgres, which PostgREST may serialize as a
+  // string — coerce so arithmetic and comparisons behave.
+  return (data ?? []).map((r: ReqMatchBreakdown) => ({
+    ...r,
+    course_grade: r.course_grade == null ? null : Number(r.course_grade),
+  })) as ReqMatchBreakdown[];
 }
 
 // ─── Student's own applications ────────────────────────────────────────────

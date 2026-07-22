@@ -16,9 +16,12 @@ import {
   type JobStatus,
 } from "@/lib/hr-mock";
 import {
+  courseBasisFor,
+  courseGradeMapsByStudent,
   gradesByCloId,
   matchScoreFromRbc,
   rbcByJobId,
+  type CourseBasis,
 } from "@/lib/hr-match";
 import type { TalentCLOGrade } from "@/lib/supabase/hr-queries";
 import Link from "next/link";
@@ -38,8 +41,19 @@ interface JobPoolStats {
 }
 
 export default function TalentPoolPage() {
-  const { company, jobs, talents, talentGrades, reqBestClos, invitations, loading, error } =
-    useHRData();
+  const {
+    company,
+    jobs,
+    talents,
+    talentGrades,
+    talentCourseGrades,
+    reqBestClos,
+    cloMatkul,
+    prodiInfo,
+    invitations,
+    loading,
+    error,
+  } = useHRData();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -62,6 +76,17 @@ export default function TalentPoolPage() {
     });
     return map;
   }, [talents, gradesByStudent]);
+
+  // Course basis per talent (undefined for talents graded per CLO), resolved
+  // once here rather than inside the per-job × per-talent loop below.
+  const courseBasisByStudent = useMemo(() => {
+    const gradeMaps = courseGradeMapsByStudent(talentCourseGrades);
+    const map = new Map<string, CourseBasis | undefined>();
+    talents.forEach((t) => {
+      map.set(t.id, courseBasisFor(t.id, t.prodi_id, prodiInfo, gradeMaps, cloMatkul));
+    });
+    return map;
+  }, [talents, talentCourseGrades, prodiInfo, cloMatkul]);
 
   const rbcByJob = useMemo(() => rbcByJobId(reqBestClos), [reqBestClos]);
 
@@ -92,7 +117,12 @@ export default function TalentPoolPage() {
       let good = 0;
       let top = 0;
       talents.forEach((t) => {
-        const score = matchScoreFromRbc(gradeMapByStudent.get(t.id) ?? new Map(), rbc) ?? 0;
+        const score =
+          matchScoreFromRbc(
+            gradeMapByStudent.get(t.id) ?? new Map(),
+            rbc,
+            courseBasisByStudent.get(t.id),
+          ) ?? 0;
         if (score >= 85) strong += 1;
         if (score >= 70) good += 1;
         if (score > top) top = score;
@@ -107,7 +137,7 @@ export default function TalentPoolPage() {
       });
     });
     return map;
-  }, [jobs, rbcByJob, talents, gradeMapByStudent, invitedByJob]);
+  }, [jobs, rbcByJob, talents, gradeMapByStudent, courseBasisByStudent, invitedByJob]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();

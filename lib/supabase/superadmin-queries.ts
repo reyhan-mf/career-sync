@@ -3,11 +3,17 @@ import { edgeFunctionError } from "./functionError";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// Where a prodi records student grades. 'clo' = per CLO (student_clos),
+// 'course' = final grade per mata kuliah (student_matkul). Both modes still
+// require CLO texts in the curriculum — those drive the semantic matching.
+export type AssessmentMode = "clo" | "course";
+
 export interface Prodi {
   id: string;
   name: string;
   fakultas: string | null;
   integration_status: string | null;
+  assessment_mode: AssessmentMode;
   created_at: string | null;
 }
 
@@ -35,7 +41,13 @@ export async function getProdi() {
   return data as Prodi[];
 }
 
-export async function createProdi(prodi: Omit<Prodi, "id" | "created_at">) {
+// `assessment_mode` is optional here: a new prodi defaults to 'clo' in the DB,
+// and the prodi's own admin switches it later from /admin/settings — that is
+// the person who actually knows how their campus records grades.
+export async function createProdi(
+  prodi: Omit<Prodi, "id" | "created_at" | "assessment_mode"> &
+    Partial<Pick<Prodi, "assessment_mode">>,
+) {
   const { data, error } = await supabase
     .from("prodi")
     .insert(prodi)

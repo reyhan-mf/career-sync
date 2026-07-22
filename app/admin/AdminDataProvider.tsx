@@ -7,13 +7,22 @@ import {
   subscribeAdminData,
   type AdminDataState,
 } from "@/lib/supabase/adminDataStore";
-import type { CLO, Matkul, Student, StudentCLO } from "@/lib/supabase/admin-queries";
+import type {
+  CLO,
+  Matkul,
+  Student,
+  StudentCLO,
+  StudentMatkul,
+} from "@/lib/supabase/admin-queries";
+import type { AssessmentMode } from "@/lib/supabase/superadmin-queries";
 
 interface AdminDataContextValue extends AdminDataState {
   setStudents: (updater: (prev: Student[]) => Student[]) => void;
   setMatkul: (updater: (prev: Matkul[]) => Matkul[]) => void;
   setClos: (updater: (prev: CLO[]) => CLO[]) => void;
   setStudentClos: (updater: (prev: StudentCLO[]) => StudentCLO[]) => void;
+  setStudentMatkul: (updater: (prev: StudentMatkul[]) => StudentMatkul[]) => void;
+  setAssessmentMode: (mode: AssessmentMode) => void;
 }
 
 // Initialization is driven by the auth listener in adminDataStore

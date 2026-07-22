@@ -15,7 +15,9 @@ const adminNav: NavItem[] = [
   { label: "Manajemen Nilai", icon: "grade", href: "/admin/grades" },
 ];
 
-const bottomNav: NavItem[] = [];
+const bottomNav: NavItem[] = [
+  { label: "Pengaturan", icon: "settings", href: "/admin/settings" },
+];
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   return (

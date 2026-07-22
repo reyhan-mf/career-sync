@@ -145,8 +145,15 @@ function JobDetailSkeleton() {
 
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
-  const { profile, matchScores, applications } = useStudentData();
+  const { profile, matchScores, applications, gradeBasis, transcript } = useStudentData();
   const studentId = profile?.student.id ?? null;
+  // The basis toggle is only meaningful when the student actually has CLO-level
+  // grades to compare against — a prodi that records only final course grades
+  // would just be offered an all-zero view.
+  const hasCloGrades = useMemo(
+    () => transcript.some((c) => c.clos.some((clo) => clo.grade != null)),
+    [transcript],
+  );
   const [activeTab, setActiveTab] = useState<"overview" | "analysis">("overview");
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
@@ -193,13 +200,13 @@ export default function JobDetailPage() {
     const jobId = params?.id;
     if (!jobId || !studentId) return;
     let alive = true;
-    getJobMatchBreakdown(studentId, jobId)
+    getJobMatchBreakdown(studentId, jobId, gradeBasis)
       .then((rows) => alive && setBreakdown(rows))
       .catch(() => alive && setBreakdown([]));
     return () => {
       alive = false;
     };
-  }, [params?.id, studentId]);
+  }, [params?.id, studentId, gradeBasis]);
 
   // Score averaged from the freshly-fetched per-requirement breakdown. This is
   // the live, authoritative value for this job.
@@ -497,14 +504,56 @@ export default function JobDetailPage() {
 
         {activeTab === "analysis" && (
           <div className="space-y-5">
+            {/* Grade basis switch. Only the grade term changes — the matching
+                itself is always CLO-text similarity, in both bases. */}
+            {hasCloGrades && (
+              <div className="bg-surface-container-lowest rounded-2xl p-4 shadow-ambient ghost-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-label text-sm font-semibold text-on-background">
+                    Basis nilai
+                  </p>
+                  <p className="font-body text-xs text-on-surface-variant">
+                    Pilih nilai mana yang dipakai membobot kemiripan.
+                  </p>
+                </div>
+                <div
+                  role="group"
+                  aria-label="Basis nilai"
+                  className="flex rounded-xl bg-surface-container-low p-1 shrink-0"
+                >
+                  {([
+                    { value: "clo" as const, label: "Per CLO" },
+                    { value: "course" as const, label: "Per Mata Kuliah" },
+                  ]).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => studentDataMutators.setGradeBasis(opt.value)}
+                      aria-pressed={gradeBasis === opt.value}
+                      className={`px-3.5 py-2 rounded-lg font-label text-xs font-semibold transition-colors ${
+                        gradeBasis === opt.value
+                          ? "bg-primary text-on-primary shadow-sm"
+                          : "text-on-surface-variant hover:text-on-surface"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* How scoring works */}
             <div className="bg-primary-fixed/30 rounded-2xl p-4">
               <div className="flex items-start gap-3">
                 <Icon name="info" className="text-primary mt-0.5 shrink-0" size={18} />
                 <p className="font-body text-xs text-on-surface-variant leading-relaxed">
                   Tiap kualifikasi dicocokkan ke CLO yang paling mirip, lalu skornya =
-                  kemiripan × nilai Anda pada CLO tersebut. Kualifikasi tanpa CLO yang
-                  relevan atau yang belum Anda ambil akan bernilai rendah.
+                  kemiripan × {gradeBasis === "course"
+                    ? "nilai akhir mata kuliah pemilik CLO tersebut"
+                    : "nilai Anda pada CLO tersebut"}
+                  . Kualifikasi tanpa CLO yang relevan atau yang belum Anda ambil akan
+                  bernilai rendah.
                 </p>
               </div>
             </div>
@@ -523,6 +572,9 @@ export default function JobDetailPage() {
                   const sim = b ? Math.round(b.similarity * 100) : null;
                   const isOpen = openReqs.has(req.id);
                   const hasClo = !!b?.clo_code;
+                  // The grade that actually produced `contribution`, per basis.
+                  const effGrade =
+                    gradeBasis === "course" ? b?.course_grade ?? null : b?.grade ?? null;
                   return (
                     <div
                       key={req.id}
@@ -564,7 +616,9 @@ export default function JobDetailPage() {
                               <thead>
                                 <tr className="border-b-2 border-outline-variant/40">
                                   <th className="w-[18%] text-left font-label text-xs font-bold text-on-surface-variant px-3 py-2">Matkul</th>
-                                  <th className="w-[4.5rem] text-center font-label text-xs font-bold text-on-surface-variant px-3 py-2">Nilai</th>
+                                  <th className="w-[4.5rem] text-center font-label text-xs font-bold text-on-surface-variant px-3 py-2">
+                                    {gradeBasis === "course" ? "Nilai MK" : "Nilai CLO"}
+                                  </th>
                                   <th className="text-left font-label text-xs font-bold text-on-surface-variant px-3 py-2">CLO</th>
                                 </tr>
                               </thead>
@@ -574,7 +628,7 @@ export default function JobDetailPage() {
                                     {b!.matkul_nama ?? "—"}
                                   </td>
                                   <td className="px-3 py-2.5 text-center font-label text-sm font-semibold text-on-surface">
-                                    {b!.grade != null ? b!.grade : "—"}
+                                    {effGrade ?? "—"}
                                   </td>
                                   <td className="px-3 py-2.5 font-body text-sm text-on-surface leading-relaxed">
                                     <span className="font-semibold text-primary">{b!.clo_code}</span>
@@ -591,7 +645,9 @@ export default function JobDetailPage() {
                           )}
                           {sim != null && (
                             <p className="px-3 mt-2 font-label text-[11px] text-on-surface-variant">
-                              Kemiripan {sim}% × nilai {b!.grade ?? 0} ={" "}
+                              Kemiripan {sim}% ×{" "}
+                              {gradeBasis === "course" ? "nilai MK" : "nilai CLO"}{" "}
+                              {effGrade ?? 0} ={" "}
                               <span className={`font-bold ${scoreColor(contribution)}`}>
                                 {contribution ?? 0}% kontribusi
                               </span>

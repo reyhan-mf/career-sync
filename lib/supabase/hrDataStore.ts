@@ -2,10 +2,12 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "./client";
 import {
   getApplications,
+  getCloMatkulMap,
   getCurrentHrProfile,
   getJobs,
-  getProdiNames,
+  getProdiInfo,
   getReqBestClos,
+  getTalentCourseGrades,
   getTalentGrades,
   getTalentInvitations,
   getTalentStudents,
@@ -13,8 +15,10 @@ import {
   type Company,
   type HRProfileWithCompany,
   type JobWithSkills,
+  type ProdiInfo,
   type ReqBestCloRow,
   type TalentCLOGrade,
+  type TalentCourseGrade,
   type TalentInvitation,
   type TalentStudent,
 } from "./hr-queries";
@@ -28,11 +32,16 @@ export interface HRDataState {
   applications: ApplicationWithDetails[];
   talents: TalentStudent[];
   talentGrades: TalentCLOGrade[];
+  // Final per-matkul grades, for talents whose prodi grades per mata kuliah
+  // (and as the alternate view for those that grade per CLO).
+  talentCourseGrades: TalentCourseGrade[];
   // req_best_clo rows for this HR's jobs — the inputs used to reproduce the
   // student-side match score (see lib/hr-match.ts).
   reqBestClos: ReqBestCloRow[];
+  // clo_id → matkul_id, needed to score on the course basis.
+  cloMatkul: Record<string, string>;
   invitations: TalentInvitation[];
-  prodiNames: Record<string, string>;
+  prodiInfo: Record<string, ProdiInfo>;
   loading: boolean;
   error: string | null;
 }
@@ -44,9 +53,11 @@ const initialState: HRDataState = {
   applications: [],
   talents: [],
   talentGrades: [],
+  talentCourseGrades: [],
   reqBestClos: [],
+  cloMatkul: {},
   invitations: [],
-  prodiNames: {},
+  prodiInfo: {},
   loading: false,
   error: null,
 };
@@ -174,8 +185,12 @@ function subscribeRealtime(hrId: string, companyId: string | null) {
       async () => {
         try {
           const talents = await getTalentStudents();
-          const grades = await getTalentGrades(talents.map((t) => t.id));
-          setState({ talents, talentGrades: grades });
+          const talentIds = talents.map((t) => t.id);
+          const [grades, courseGrades] = await Promise.all([
+            getTalentGrades(talentIds),
+            getTalentCourseGrades(talentIds).catch(() => [] as TalentCourseGrade[]),
+          ]);
+          setState({ talents, talentGrades: grades, talentCourseGrades: courseGrades });
         } catch {
           /* ignore */
         }
@@ -216,20 +231,30 @@ export function ensureHrDataInitialized(): Promise<void> {
       // redundant re-fire and does not trigger a second reload.
       currentUserId = hr.user_id ?? currentUserId;
 
-      const [jobs, talents, prodiNames] = await Promise.all([
+      const [jobs, talents, prodiInfo] = await Promise.all([
         getJobs({ hrId: hr.id }),
         getTalentStudents().catch(() => [] as TalentStudent[]),
-        getProdiNames().catch(() => ({} as Record<string, string>)),
+        getProdiInfo().catch(() => ({} as Record<string, ProdiInfo>)),
       ]);
 
       const jobIds = jobs.map((j) => j.id);
-      const [applications, invitations, talentGrades, reqBestClos] = await Promise.all([
+      const talentIds = talents.map((t) => t.id);
+      const [
+        applications,
+        invitations,
+        talentGrades,
+        talentCourseGrades,
+        reqBestClos,
+        cloMatkul,
+      ] = await Promise.all([
         jobIds.length
           ? getApplications({ jobIds }).catch(() => [] as ApplicationWithDetails[])
           : Promise.resolve([] as ApplicationWithDetails[]),
         getTalentInvitations(hr.id).catch(() => [] as TalentInvitation[]),
-        getTalentGrades(talents.map((t) => t.id)).catch(() => [] as TalentCLOGrade[]),
+        getTalentGrades(talentIds).catch(() => [] as TalentCLOGrade[]),
+        getTalentCourseGrades(talentIds).catch(() => [] as TalentCourseGrade[]),
         getReqBestClos(jobIds).catch(() => [] as ReqBestCloRow[]),
+        getCloMatkulMap().catch(() => ({} as Record<string, string>)),
       ]);
 
       setState({
@@ -239,9 +264,11 @@ export function ensureHrDataInitialized(): Promise<void> {
         applications,
         talents,
         talentGrades,
+        talentCourseGrades,
         reqBestClos,
+        cloMatkul,
         invitations,
-        prodiNames,
+        prodiInfo,
         loading: false,
         error: null,
       });

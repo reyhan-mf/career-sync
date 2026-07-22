@@ -18,7 +18,14 @@ import {
 } from "@/lib/supabase/hr-queries";
 import { hrDataMutators } from "@/lib/supabase/hrDataStore";
 import { reportHrError } from "@/lib/supabase/hrErrors";
-import { gradesByCloId, matchScoreFromRbc, rbcByJobId } from "@/lib/hr-match";
+import {
+  assessmentModeOf,
+  courseBasisFor,
+  courseGradeMapsByStudent,
+  gradesByCloId,
+  matchScoreFromRbc,
+  rbcByJobId,
+} from "@/lib/hr-match";
 import {
   getJobMatchBreakdown,
   type ReqMatchBreakdown,
@@ -55,8 +62,17 @@ function ApplicantsContent() {
   const searchParams = useSearchParams();
   const initialJobFilter = searchParams.get("job") ?? "all";
 
-  const { jobs, applications, prodiNames, talentGrades, reqBestClos, loading, error } =
-    useHRData();
+  const {
+    jobs,
+    applications,
+    prodiInfo,
+    talentGrades,
+    talentCourseGrades,
+    reqBestClos,
+    cloMatkul,
+    loading,
+    error,
+  } = useHRData();
 
   const [search, setSearch] = useState("");
   const [jobFilter, setJobFilter] = useState<string>(initialJobFilter);
@@ -79,6 +95,16 @@ function ApplicantsContent() {
     }
     return m;
   }, [talentGrades]);
+  const courseGradeMaps = useMemo(
+    () => courseGradeMapsByStudent(talentCourseGrades),
+    [talentCourseGrades],
+  );
+  // Each applicant is scored on their own prodi's basis — see hr-match.ts.
+  const basisFor = useCallback(
+    (studentId: string, prodiId: string | null | undefined) =>
+      courseBasisFor(studentId, prodiId, prodiInfo, courseGradeMaps, cloMatkul),
+    [prodiInfo, courseGradeMaps, cloMatkul],
+  );
   const scoreFor = useCallback(
     (app: ApplicationWithDetails): number | null => {
       const sid = app.students?.id;
@@ -86,13 +112,15 @@ function ApplicantsContent() {
       const live = matchScoreFromRbc(
         gradesByCloId(grades),
         rbcByJob.get(app.job_id ?? "") ?? [],
+        sid ? basisFor(sid, app.students?.prodi_id) : undefined,
       );
       if (live != null) return live;
       return app.match_score != null ? Math.round(app.match_score) : null;
     },
-    [gradesByStudent, rbcByJob],
+    [gradesByStudent, rbcByJob, basisFor],
   );
   const selectedScore = selected ? scoreFor(selected) : null;
+  const selectedMode = assessmentModeOf(selected?.students?.prodi_id, prodiInfo);
 
   // Per-requirement CLO breakdown of the selected applicant vs the job they
   // applied to — same RPC + <CompetencyInsight /> the talent pool uses, so both
@@ -103,37 +131,52 @@ function ApplicantsContent() {
     new Map(),
   );
   const inFlight = useRef<Set<string>>(new Set());
-  const breakdownKey = (studentId: string, jobId: string) => `${studentId}:${jobId}`;
+  // The mode is part of the key: the same (student, job) yields different
+  // per-requirement numbers on the CLO and course bases.
+  const breakdownKey = (studentId: string, jobId: string, mode: string) =>
+    `${studentId}:${jobId}:${mode}`;
 
-  const fetchBreakdown = useCallback((studentId: string, jobId: string) => {
-    const key = breakdownKey(studentId, jobId);
-    if (inFlight.current.has(key)) return;
-    inFlight.current.add(key);
-    getJobMatchBreakdown(studentId, jobId)
-      .then((rows) =>
-        setBreakdownCache((prev) => new Map(prev).set(key, { rows, status: "ready" })),
-      )
-      .catch(() =>
-        setBreakdownCache((prev) =>
-          new Map(prev).set(key, { rows: [], status: "error" }),
-        ),
-      )
-      .finally(() => inFlight.current.delete(key));
-  }, []);
+  const fetchBreakdown = useCallback(
+    (studentId: string, jobId: string, prodiId: string | null | undefined) => {
+      const mode = assessmentModeOf(prodiId, prodiInfo);
+      const key = breakdownKey(studentId, jobId, mode);
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
+      getJobMatchBreakdown(studentId, jobId, mode)
+        .then((rows) =>
+          setBreakdownCache((prev) => new Map(prev).set(key, { rows, status: "ready" })),
+        )
+        .catch(() =>
+          setBreakdownCache((prev) =>
+            new Map(prev).set(key, { rows: [], status: "error" }),
+          ),
+        )
+        .finally(() => inFlight.current.delete(key));
+    },
+    [prodiInfo],
+  );
 
   const selectedStudentId = selected?.students?.id ?? null;
   const selectedJobId = selected?.job_id ?? null;
+  const selectedProdiId = selected?.students?.prodi_id ?? null;
 
   // Fetch the open applicant's breakdown if not cached yet.
   useEffect(() => {
     if (!selectedStudentId || !selectedJobId) return;
-    if (breakdownCache.has(breakdownKey(selectedStudentId, selectedJobId))) return;
-    fetchBreakdown(selectedStudentId, selectedJobId);
-  }, [selectedStudentId, selectedJobId, breakdownCache, fetchBreakdown]);
+    if (breakdownCache.has(breakdownKey(selectedStudentId, selectedJobId, selectedMode))) return;
+    fetchBreakdown(selectedStudentId, selectedJobId, selectedProdiId);
+  }, [
+    selectedStudentId,
+    selectedJobId,
+    selectedProdiId,
+    selectedMode,
+    breakdownCache,
+    fetchBreakdown,
+  ]);
 
   const currentEntry =
     selectedStudentId && selectedJobId
-      ? breakdownCache.get(breakdownKey(selectedStudentId, selectedJobId))
+      ? breakdownCache.get(breakdownKey(selectedStudentId, selectedJobId, selectedMode))
       : undefined;
   const breakdown = currentEntry?.status === "ready" ? currentEntry.rows : [];
   const breakdownLoading = !!selectedJobId && !currentEntry;
@@ -162,11 +205,12 @@ function ApplicantsContent() {
       .forEach((a) => {
         const sid = a.students?.id;
         if (!sid || !a.job_id) return;
-        if (!breakdownCache.has(breakdownKey(sid, a.job_id))) {
-          fetchBreakdown(sid, a.job_id);
+        const mode = assessmentModeOf(a.students?.prodi_id, prodiInfo);
+        if (!breakdownCache.has(breakdownKey(sid, a.job_id, mode))) {
+          fetchBreakdown(sid, a.job_id, a.students?.prodi_id);
         }
       });
-  }, [filtered, breakdownCache, fetchBreakdown]);
+  }, [filtered, breakdownCache, fetchBreakdown, prodiInfo]);
 
   const updateStatus = async (id: string, newStatus: ApplicationStatus) => {
     setBusy(true);
@@ -233,8 +277,14 @@ function ApplicantsContent() {
                   </p>
                   <p className="font-label text-xs text-on-surface-variant mt-0.5">
                     {selected.students?.prodi_id
-                      ? prodiNames[selected.students.prodi_id] ?? "—"
+                      ? prodiInfo[selected.students.prodi_id]?.name ?? "—"
                       : "—"}
+                    {" · "}
+                    {/* Which grade basis produced the score shown for this
+                        applicant. Their prodi decides it, not the HR. */}
+                    <span className="font-semibold">
+                      Nilai {selectedMode === "course" ? "per Mata Kuliah" : "per CLO"}
+                    </span>
                   </p>
                 </div>
               </div>

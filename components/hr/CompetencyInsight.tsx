@@ -4,11 +4,16 @@ import { useState } from "react";
 import Icon from "@/components/ui/Icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ReqMatchBreakdown } from "@/lib/supabase/student-queries";
+import type { AssessmentMode } from "@/lib/supabase/superadmin-queries";
 
 // Shared "Analisis Kompetensi" shown in the talent-pool and applicants modals:
 // a per-requirement match of a student vs a job — which CLO each requirement
 // maps to, the student's grade, and the grade-weighted contribution. Same RPC
 // the student sees on /student/jobs/[id], so the numbers never diverge.
+//
+// The requirement is always matched to a CLO. `gradeBasis` only selects which
+// grade weights that similarity: the CLO's own grade, or the final grade of the
+// matkul owning it.
 
 // Tailwind text-color for a 0-100 contribution score — mirrors the student
 // job-detail page so HR sees the same color coding on the breakdown.
@@ -26,6 +31,11 @@ export interface CompetencyInsightProps {
   breakdown: ReqMatchBreakdown[];
   loading: boolean;
   error: boolean;
+  /**
+   * Which grade produced `contribution` — must match the `mode` the breakdown
+   * was fetched with, or the arithmetic shown to the user will not add up.
+   */
+  gradeBasis?: AssessmentMode;
 }
 
 // NOTE: render with a `key` tied to the student id so React remounts (and thus
@@ -35,7 +45,10 @@ export default function CompetencyInsight({
   breakdown,
   loading,
   error,
+  gradeBasis = "clo",
 }: CompetencyInsightProps) {
+  const isCourse = gradeBasis === "course";
+  const gradeOf = (b: ReqMatchBreakdown) => (isCourse ? b.course_grade : b.grade);
   const [openReqs, setOpenReqs] = useState<Set<string>>(new Set());
 
   const toggleReq = (id: string) =>
@@ -116,8 +129,8 @@ export default function CompetencyInsight({
                               <th className="w-[30%] text-left font-label text-[10px] font-bold text-on-surface-variant px-2 py-1.5">
                                 Matkul
                               </th>
-                              <th className="w-[3.25rem] text-center font-label text-[10px] font-bold text-on-surface-variant px-2 py-1.5">
-                                Nilai
+                              <th className="w-[3.6rem] text-center font-label text-[10px] font-bold text-on-surface-variant px-2 py-1.5">
+                                {isCourse ? "Nilai MK" : "Nilai CLO"}
                               </th>
                               <th className="text-left font-label text-[10px] font-bold text-on-surface-variant px-2 py-1.5">
                                 CLO
@@ -130,7 +143,7 @@ export default function CompetencyInsight({
                                 {b.matkul_nama ?? "—"}
                               </td>
                               <td className="px-2 py-2 text-center font-label text-xs font-semibold text-on-surface">
-                                {b.grade != null ? b.grade : "—"}
+                                {gradeOf(b) ?? "—"}
                               </td>
                               <td className="px-2 py-2 font-body text-[11px] text-on-surface leading-relaxed">
                                 <span className="font-semibold text-primary">
@@ -148,7 +161,8 @@ export default function CompetencyInsight({
                         </p>
                       )}
                       <p className="px-2 mt-1.5 font-label text-[10px] text-on-surface-variant">
-                        Kemiripan {sim}% × nilai {b.grade ?? 0} ={" "}
+                        Kemiripan {sim}% × {isCourse ? "nilai MK" : "nilai CLO"}{" "}
+                        {gradeOf(b) ?? 0} ={" "}
                         <span className={`font-bold ${scoreColor(b.contribution)}`}>
                           {b.contribution}% kontribusi
                         </span>

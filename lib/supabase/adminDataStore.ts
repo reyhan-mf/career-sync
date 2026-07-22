@@ -8,10 +8,12 @@ import {
   type Matkul,
   type Student,
   type StudentCLO,
+  type StudentMatkul,
 } from "./admin-queries";
 import { reportAdminError } from "./adminErrors";
 import { fetchAllPages } from "./paginate";
 import type { AdminProdiInfo } from "./useAdminProdi";
+import type { AssessmentMode } from "./superadmin-queries";
 import { clearRoleCache, resolveUserRole } from "./currentRole";
 
 export interface AdminDataState {
@@ -20,6 +22,8 @@ export interface AdminDataState {
   matkul: Matkul[];
   clos: CLO[];
   studentClos: StudentCLO[];
+  /** Final per-matkul grades — only populated in 'course' assessment mode. */
+  studentMatkul: StudentMatkul[];
   loading: boolean;
   error: string | null;
 }
@@ -30,6 +34,7 @@ const initialState: AdminDataState = {
   matkul: [],
   clos: [],
   studentClos: [],
+  studentMatkul: [],
   loading: false,
   error: null,
 };
@@ -54,19 +59,25 @@ async function resolveAdminCtx(): Promise<AdminProdiInfo> {
   if (!session) throw new Error("Tidak ada sesi.");
   const { data, error } = await supabase
     .from("admin_users")
-    .select(`name, email, prodi:prodi_id ( id, name, fakultas )`)
+    .select(`name, email, prodi:prodi_id ( id, name, fakultas, assessment_mode )`)
     .eq("user_id", session.user.id)
     .is("deleted_at", null)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data || !data.prodi) throw new Error("Akun admin ini belum ditautkan ke prodi.");
-  const prodi = data.prodi as unknown as { id: string; name: string; fakultas: string | null };
+  const prodi = data.prodi as unknown as {
+    id: string;
+    name: string;
+    fakultas: string | null;
+    assessment_mode: AssessmentMode | null;
+  };
   return {
     prodi_id: prodi.id,
     prodi_name: prodi.name,
     admin_name: data.name,
     fakultas: prodi.fakultas,
     email: data.email,
+    assessment_mode: prodi.assessment_mode ?? "clo",
   };
 }
 
@@ -84,6 +95,8 @@ function subscribeRealtime(prodiId: string) {
     `admin-matkul-${prodiId}`,
     `admin-clos-${prodiId}`,
     `admin-student-clos-${prodiId}`,
+    `admin-student-matkul-${prodiId}`,
+    `admin-prodi-${prodiId}`,
   ];
   supabase.getChannels().forEach((ch) => {
     if (topics.includes(ch.topic.replace(/^realtime:/, ""))) {
@@ -212,7 +225,61 @@ function subscribeRealtime(prodiId: string) {
     )
     .subscribe();
 
-  channels = [studentsCh, matkulCh, closCh, studentClosCh];
+  // student_matkul: junction. Scope client-side by matkul_id ∈ our matkul.
+  const studentMatkulCh = supabase
+    .channel(`admin-student-matkul-${prodiId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "student_matkul" },
+      (payload) => {
+        if (payload.eventType === "DELETE") {
+          const old = payload.old as { student_id?: string; matkul_id?: string };
+          if (!old.student_id || !old.matkul_id) return;
+          setState({
+            studentMatkul: state.studentMatkul.filter(
+              (sm) => !(sm.student_id === old.student_id && sm.matkul_id === old.matkul_id),
+            ),
+          });
+          return;
+        }
+        const row = payload.new as StudentMatkul;
+        if (!state.matkul.some((m) => m.id === row.matkul_id)) return;
+        const idx = state.studentMatkul.findIndex(
+          (sm) => sm.student_id === row.student_id && sm.matkul_id === row.matkul_id,
+        );
+        if (idx === -1) {
+          setState({ studentMatkul: [...state.studentMatkul, row] });
+        } else {
+          const next = [...state.studentMatkul];
+          next[idx] = row;
+          setState({ studentMatkul: next });
+        }
+      },
+    )
+    .subscribe();
+
+  // The prodi row itself: assessment_mode can be flipped from /admin/settings
+  // in another tab, and every grade/analysis screen keys off it.
+  const prodiCh = supabase
+    .channel(`admin-prodi-${prodiId}`)
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "prodi", filter: `id=eq.${prodiId}` },
+      (payload) => {
+        const row = payload.new as { name?: string; assessment_mode?: AssessmentMode };
+        if (!state.adminCtx) return;
+        setState({
+          adminCtx: {
+            ...state.adminCtx,
+            prodi_name: row.name ?? state.adminCtx.prodi_name,
+            assessment_mode: row.assessment_mode ?? state.adminCtx.assessment_mode,
+          },
+        });
+      },
+    )
+    .subscribe();
+
+  channels = [studentsCh, matkulCh, closCh, studentClosCh, studentMatkulCh, prodiCh];
 }
 
 async function fetchStudentClosForMatkul(matkulIds: string[]): Promise<StudentCLO[]> {
@@ -242,10 +309,25 @@ async function fetchStudentClosForMatkul(matkulIds: string[]): Promise<StudentCL
   );
 }
 
+async function fetchStudentMatkulForMatkul(matkulIds: string[]): Promise<StudentMatkul[]> {
+  if (matkulIds.length === 0) return [];
+  // Same 1000-row cap reasoning as fetchStudentClosForMatkul: one row per
+  // (student, matkul) adds up fast once a prodi has a full curriculum.
+  return fetchAllPages<StudentMatkul>((from, to) =>
+    supabase
+      .from("student_matkul")
+      .select("student_id, matkul_id, grade")
+      .in("matkul_id", matkulIds)
+      .order("student_id")
+      .order("matkul_id")
+      .range(from, to),
+  );
+}
+
 /**
  * Idempotent init: fetches admin context + students + matkul + clos +
- * student_clos and subscribes to realtime. Safe to call multiple times — only
- * the first call does work.
+ * student_clos + student_matkul and subscribes to realtime. Safe to call
+ * multiple times — only the first call does work.
  */
 export function ensureAdminDataInitialized(): Promise<void> {
   if (initPromise) return initPromise;
@@ -260,13 +342,17 @@ export function ensureAdminDataInitialized(): Promise<void> {
       ]);
       const matkulIds = new Set(matkul.map((m) => m.id));
       const scopedClos = allClos.filter((c) => matkulIds.has(c.matkul_id));
-      const studentClos = await fetchStudentClosForMatkul([...matkulIds]);
+      const [studentClos, studentMatkul] = await Promise.all([
+        fetchStudentClosForMatkul([...matkulIds]),
+        fetchStudentMatkulForMatkul([...matkulIds]),
+      ]);
       setState({
         adminCtx,
         students,
         matkul,
         clos: scopedClos,
         studentClos,
+        studentMatkul,
         loading: false,
         error: null,
       });
@@ -310,6 +396,14 @@ export const adminDataMutators = {
   },
   setStudentClos(updater: (prev: StudentCLO[]) => StudentCLO[]) {
     setState({ studentClos: updater(state.studentClos) });
+  },
+  setStudentMatkul(updater: (prev: StudentMatkul[]) => StudentMatkul[]) {
+    setState({ studentMatkul: updater(state.studentMatkul) });
+  },
+  // Optimistic switch after /admin/settings saves — realtime then confirms it.
+  setAssessmentMode(mode: AssessmentMode) {
+    if (!state.adminCtx || state.adminCtx.assessment_mode === mode) return;
+    setState({ adminCtx: { ...state.adminCtx, assessment_mode: mode } });
   },
 };
 
